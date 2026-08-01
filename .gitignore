@@ -1,0 +1,15 @@
+bin/
+obj/
+.vs/
+.idea/
+*.user
+*.DS_Store
+*.zip
+TestResults/
+.nuget-packages/
+
+src/NcfDesktopApp.GUI/publish/
+src/NcfDesktopApp.GUI/publish-self-contained/
+src/NcfDesktopApp.GUI/publish-self-contained.pre-package-*
+src/NcfDesktopApp.GUI/macos-app/
+src/NcfDesktopApp.GUI/macos-app.pre-package-*
