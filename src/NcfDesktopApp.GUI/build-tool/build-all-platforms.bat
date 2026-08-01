@@ -114,7 +114,7 @@ REM 检查 .NET SDK
 echo [92m🔍 检查 .NET SDK...[0m
 where dotnet >nul 2>&1
 if errorlevel 1 (
-    echo [91m❌ 未找到 .NET SDK，请安装 .NET 8.0 或更高版本[0m
+    echo [91m❌ 未找到 .NET SDK，请安装 .NET 10.0 或更高版本[0m
     exit /b 1
 )
 

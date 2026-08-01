@@ -100,7 +100,7 @@ clean_output() {
 check_dotnet() {
     echo -e "${BLUE}🔍 检查 .NET SDK...${NC}"
     if ! command -v dotnet &> /dev/null; then
-        echo -e "${RED}❌ 未找到 .NET SDK，请安装 .NET 8.0 或更高版本${NC}"
+        echo -e "${RED}❌ 未找到 .NET SDK，请安装 .NET 10.0 或更高版本${NC}"
         exit 1
     fi
     

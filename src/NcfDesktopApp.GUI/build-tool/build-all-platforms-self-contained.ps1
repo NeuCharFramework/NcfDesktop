@@ -124,7 +124,7 @@ function Test-DotNetSDK {
         # 处理异常
     }
     
-    Write-ColorText "❌ 未找到 .NET SDK，请安装 .NET 8.0 或更高版本" -Color "Red"
+    Write-ColorText "❌ 未找到 .NET SDK，请安装 .NET 10.0 或更高版本" -Color "Red"
     return $false
 }
 

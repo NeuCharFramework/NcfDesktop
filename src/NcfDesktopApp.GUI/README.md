@@ -168,7 +168,9 @@ dotnet run
 
 ## 📋 **系统要求**
 
-- **.NET 8.0 Runtime**
+- **正式自包含发布包**：无需预先安装 .NET Runtime
+- **框架依赖发布包**：需要 .NET 10.0 Runtime
+- **源码开发和运行**：需要 .NET 10.0 SDK
 - **操作系统**：Windows 10+、macOS 10.15+、Linux（现代发行版）
 - **内存**：至少 512MB 可用内存
 - **磁盘空间**：至少 1GB 可用空间（用于NCF文件）
@@ -207,7 +209,8 @@ dotnet publish -c Release -r linux-arm64 --self-contained true
 ### 常见问题
 
 1. **应用程序无法启动**
-   - 确保安装了.NET 8.0 Runtime
+   - 确认下载了与操作系统及 CPU 架构匹配的正式发布包
+   - 框架依赖版本需安装 .NET 10.0 Runtime；正式自包含版本无需安装
    - 检查系统兼容性
 
 2. **无法获取版本信息**
