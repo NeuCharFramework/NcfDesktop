@@ -163,14 +163,20 @@ jobs:
         # Keep a release request active until a Desktop release tag is created.
         # This allows a later pipeline-fix commit to recover a failed release
         # without requiring another version bump or another marker commit.
-        $latestDesktopReleaseTag = @(
-          git tag --merged HEAD --list 'desktop-v*-build*' '--sort=-creatordate' |
-            Select-Object -First 1
+        # Materialize the native command output before selecting the first tag.
+        # Windows PowerShell may close a native pipeline early for
+        # Select-Object -First 1, which can make git report a false failure.
+        $mergedDesktopReleaseTags = @(
+          git tag --list 'desktop-v*-build*' --merged HEAD '--sort=-creatordate'
         )
-        if ($LASTEXITCODE -ne 0) {
-          throw 'Unable to inspect existing Desktop release tags.'
+        $gitTagExitCode = $LASTEXITCODE
+        if ($gitTagExitCode -ne 0) {
+          throw "Unable to inspect existing Desktop release tags (git exit code $gitTagExitCode)."
         }
-        $latestDesktopReleaseTag = ([string]$latestDesktopReleaseTag).Trim()
+        $latestDesktopReleaseTag = [string](
+          $mergedDesktopReleaseTags | Select-Object -First 1
+        )
+        $latestDesktopReleaseTag = $latestDesktopReleaseTag.Trim()
         $releaseCommitRange = if ($latestDesktopReleaseTag) {
           "$latestDesktopReleaseTag..HEAD"
         } else {

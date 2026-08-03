@@ -1,3 +1,16 @@
+/*----------------------------------------------------------------
+    Copyright (C) 2026 Senparc
+
+    文件名：App.axaml.cs
+    文件功能描述：配置 Avalonia 桌面应用、工作台窗口和共享服务生命周期
+
+    创建标识：Senparc - 20260802
+
+    修改标识：Senparc - 20260804
+    修改描述：v0.6.0 协调工作台窗口及本地语音服务的启动与释放
+
+----------------------------------------------------------------*/
+
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;

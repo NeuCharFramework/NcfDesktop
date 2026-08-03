@@ -1,3 +1,16 @@
+/*----------------------------------------------------------------
+    Copyright (C) 2026 Senparc
+
+    文件名：SettingsView.axaml.cs
+    文件功能描述：处理桌面设置、聊天和日志视图的交互逻辑
+
+    创建标识：Senparc - 20260802
+
+    修改标识：Senparc - 20260804
+    修改描述：v0.6.0 优化聊天与日志区域的滚动位置保持
+
+----------------------------------------------------------------*/
+
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
