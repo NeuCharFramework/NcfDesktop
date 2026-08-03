@@ -204,7 +204,11 @@ internal sealed class LocalWakeWordService : ILocalWakeWordService, IDisposable
         {
             cancellationToken.ThrowIfCancellationRequested();
             DeleteFileIfPresent(archivePath);
-            progress?.Invoke(new WakeWordDownloadProgress(downloadSource.DisplayName, 0, null));
+            progress?.Invoke(new WakeWordDownloadProgress(
+                downloadSource.DisplayName,
+                0,
+                null,
+                WakeWordDownloadStage.Connecting));
 
             using var sourceTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             sourceTimeout.CancelAfter(DownloadStallTimeout);
@@ -216,36 +220,36 @@ internal sealed class LocalWakeWordService : ILocalWakeWordService, IDisposable
                     sourceTimeout.Token).ConfigureAwait(false);
                 response.EnsureSuccessStatusCode();
                 var totalBytes = response.Content.Headers.ContentLength;
-                progress?.Invoke(new WakeWordDownloadProgress(downloadSource.DisplayName, 0, totalBytes));
+                progress?.Invoke(new WakeWordDownloadProgress(
+                    downloadSource.DisplayName,
+                    0,
+                    totalBytes,
+                    WakeWordDownloadStage.Downloading));
 
                 await using var source = await response.Content
                     .ReadAsStreamAsync(sourceTimeout.Token)
                     .ConfigureAwait(false);
-                await using var destination = new FileStream(
+                var downloaded = await WriteDownloadedFileAsync(
+                    source,
                     archivePath,
-                    FileMode.CreateNew,
-                    FileAccess.Write,
-                    FileShare.None,
-                    128 * 1024,
-                    FileOptions.Asynchronous | FileOptions.SequentialScan);
-                var buffer = new byte[128 * 1024];
-                long downloaded = 0;
-                int count;
-                while ((count = await source.ReadAsync(buffer, sourceTimeout.Token).ConfigureAwait(false)) > 0)
-                {
-                    sourceTimeout.CancelAfter(DownloadStallTimeout);
-                    await destination.WriteAsync(
-                        buffer.AsMemory(0, count),
-                        sourceTimeout.Token).ConfigureAwait(false);
-                    downloaded += count;
-                    progress?.Invoke(new WakeWordDownloadProgress(
-                        downloadSource.DisplayName,
-                        downloaded,
-                        totalBytes));
-                }
+                    bytesWritten =>
+                    {
+                        sourceTimeout.CancelAfter(DownloadStallTimeout);
+                        progress?.Invoke(new WakeWordDownloadProgress(
+                            downloadSource.DisplayName,
+                            bytesWritten,
+                            totalBytes,
+                            WakeWordDownloadStage.Downloading));
+                    },
+                    sourceTimeout.Token).ConfigureAwait(false);
 
-                await destination.FlushAsync(sourceTimeout.Token).ConfigureAwait(false);
+                // WriteDownloadedFileAsync 返回时写入流已经关闭；此时才能重新打开文件做哈希校验。
                 sourceTimeout.CancelAfter(Timeout.InfiniteTimeSpan);
+                progress?.Invoke(new WakeWordDownloadProgress(
+                    downloadSource.DisplayName,
+                    downloaded,
+                    totalBytes,
+                    WakeWordDownloadStage.Validating));
                 await ValidateDownloadedArchiveAsync(archivePath, cancellationToken).ConfigureAwait(false);
                 return;
             }
@@ -255,13 +259,52 @@ internal sealed class LocalWakeWordService : ILocalWakeWordService, IDisposable
             }
             catch (Exception ex)
             {
-                failures.Add($"{downloadSource.DisplayName}：{DescribeDownloadFailure(ex)}");
+                var failure = DescribeDownloadFailure(ex);
+                failures.Add($"{downloadSource.DisplayName}：{failure}");
+                progress?.Invoke(new WakeWordDownloadProgress(
+                    downloadSource.DisplayName,
+                    0,
+                    null,
+                    WakeWordDownloadStage.SourceFailed,
+                    failure));
                 DeleteFileIfPresent(archivePath);
             }
         }
 
         throw new HttpRequestException(
             $"全部下载源均不可用。{string.Join("；", failures)}");
+    }
+
+    internal static async Task<long> WriteDownloadedFileAsync(
+        Stream source,
+        string archivePath,
+        Action<long>? progress,
+        CancellationToken cancellationToken)
+    {
+        long downloaded = 0;
+        await using (var destination = new FileStream(
+                         archivePath,
+                         FileMode.CreateNew,
+                         FileAccess.Write,
+                         FileShare.None,
+                         128 * 1024,
+                         FileOptions.Asynchronous | FileOptions.SequentialScan))
+        {
+            var buffer = new byte[128 * 1024];
+            int count;
+            while ((count = await source.ReadAsync(buffer, cancellationToken).ConfigureAwait(false)) > 0)
+            {
+                await destination.WriteAsync(
+                    buffer.AsMemory(0, count),
+                    cancellationToken).ConfigureAwait(false);
+                downloaded += count;
+                progress?.Invoke(downloaded);
+            }
+
+            await destination.FlushAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        return downloaded;
     }
 
     internal static async Task ValidateDownloadedArchiveAsync(

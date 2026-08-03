@@ -42,6 +42,9 @@ public partial class MainWindowViewModel
     private string _voiceLanguage = "auto";
 
     [ObservableProperty]
+    private bool _sttAutoSend;
+
+    [ObservableProperty]
     private string _voiceModelStatusText = "尚未选择语音模型。";
 
     [ObservableProperty]
@@ -106,6 +109,21 @@ public partial class MainWindowViewModel
         {
             VoiceLanguage = normalized;
             return;
+        }
+
+        if (!_suppressDesktopSettingsSave)
+        {
+            SaveDesktopSettings();
+        }
+    }
+
+    partial void OnSttAutoSendChanged(bool value)
+    {
+        if (!IsVoiceInputBusy)
+        {
+            VoiceInputStatusText = value
+                ? "语音将在本机转写；识别完成后会自动发送。"
+                : "语音将在本机转写；识别结果会先进入输入框，不会自动发送。";
         }
 
         if (!_suppressDesktopSettingsSave)
@@ -420,9 +438,52 @@ public partial class MainWindowViewModel
             ChatInput = string.IsNullOrWhiteSpace(ChatInput)
                 ? transcript
                 : $"{ChatInput.TrimEnd()}{Environment.NewLine}{transcript}";
-            VoiceInputStatusText = "识别完成，文字已放入输入框；确认后再发送。";
-            Robot.SetVoiceInputState("识别完成", "文字已写入 AdminChat 输入框，请确认后发送");
             AddLog("✅ 本地语音识别完成，原始音频未上传");
+
+            // STT 已完成；自动发送可能包含较长的流式回复，不能让界面在此期间继续显示“识别中”。
+            IsVoiceTranscribing = false;
+
+            if (SttAutoSend && CanSendAdminChatMessage())
+            {
+                // 复用 AdminChat 唯一发送入口，使鉴权、流式响应和失败恢复行为与手动发送完全一致。
+                VoiceInputStatusText = "识别完成，正在自动发送…";
+                Robot.SetVoiceInputState("正在发送", "语音文字正在发送到 AdminChat");
+                bool sent;
+                try
+                {
+                    sent = await SendAdminChatMessageCoreAsync();
+                }
+                catch (Exception ex)
+                {
+                    // 转写已经成功，发送阶段的意外错误不能被误报为“语音识别失败”。
+                    VoiceInputStatusText = "识别完成，但自动发送失败；文字已保留在输入框。";
+                    Robot.SetVoiceInputState("等待发送", VoiceInputStatusText, isError: true);
+                    AddLog($"❌ STT 自动发送失败: {ex.Message}");
+                    return;
+                }
+
+                if (sent)
+                {
+                    VoiceInputStatusText = "识别完成，文字已自动发送。";
+                    Robot.SetVoiceInputState("已自动发送", "AdminChat 已完成语音消息处理");
+                }
+                else
+                {
+                    VoiceInputStatusText = "自动发送未完成，识别文字已保留在输入框。";
+                    Robot.SetVoiceInputState("等待发送", VoiceInputStatusText, isError: true);
+                }
+            }
+            else if (SttAutoSend)
+            {
+                // 转写期间可能发生退出登录或连接断开；此时必须保留文字，不能静默丢弃。
+                VoiceInputStatusText = "识别完成，但当前无法自动发送；文字已保留在输入框。";
+                Robot.SetVoiceInputState("等待发送", VoiceInputStatusText, isError: true);
+            }
+            else
+            {
+                VoiceInputStatusText = "识别完成，文字已放入输入框；确认后再发送。";
+                Robot.SetVoiceInputState("识别完成", "文字已写入 AdminChat 输入框，请确认后发送");
+            }
         }
         catch (OperationCanceledException)
         {

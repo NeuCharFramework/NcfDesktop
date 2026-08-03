@@ -478,13 +478,26 @@
                                                                        FontSize="9.5"
                                                                        Foreground="{DynamicResource SecondaryTextBrush}"/>
                                                             <Button Grid.Column="2"
-                                                                    Content="🔊"
                                                                     Click="AdminChatSpeechButton_OnClick"
                                                                     IsVisible="{Binding IsAgent}"
-                                                                    Padding="5,1"
-                                                                    FontSize="10"
+                                                                    Width="30"
+                                                                    Height="26"
+                                                                    Padding="0"
+                                                                    HorizontalContentAlignment="Center"
+                                                                    VerticalContentAlignment="Center"
                                                                     Classes="secondary-action"
-                                                                    ToolTip.Tip="朗读此条 AI 回复；再次点击可停止"/>
+                                                                    ToolTip.Tip="朗读此条 AI 回复；再次点击可停止">
+                                                                <Viewbox Width="16" Height="16" IsHitTestVisible="False">
+                                                                    <Canvas Width="16" Height="16">
+                                                                        <Path Data="M 1.5,6 L 5,6 L 9,2.5 L 9,13.5 L 5,10 L 1.5,10 Z"
+                                                                              Fill="#7C3AED"/>
+                                                                        <Path Data="M 11,5 C 12.2,6.1 12.7,7 12.7,8 C 12.7,9 12.2,9.9 11,11 M 12.7,3.2 C 14.4,4.8 15.2,6.3 15.2,8 C 15.2,9.7 14.4,11.2 12.7,12.8"
+                                                                              Stroke="#7C3AED"
+                                                                              StrokeThickness="1.35"
+                                                                              StrokeLineCap="Round"/>
+                                                                    </Canvas>
+                                                                </Viewbox>
+                                                            </Button>
                                                         </Grid>
                                                         <SelectableTextBlock Text="{Binding Content}"
                                                                              TextWrapping="Wrap"
@@ -502,12 +515,38 @@
                                     BorderThickness="0,1,0,0" Padding="12,9">
                                 <Grid ColumnDefinitions="Auto,*,Auto" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="8" RowSpacing="5">
                                     <Button Grid.Row="0" Grid.Column="0"
-                                            Content="{Binding VoiceInputButtonIcon}"
                                             Command="{Binding ToggleVoiceInputCommand}"
-                                            FontSize="16"
-                                            MinWidth="46"
+                                            Width="46"
+                                            Height="42"
+                                            Padding="0"
+                                            HorizontalContentAlignment="Center"
+                                            VerticalContentAlignment="Center"
                                             Classes="secondary-action"
-                                            ToolTip.Tip="{Binding VoiceInputStatusText}"/>
+                                            ToolTip.Tip="{Binding VoiceInputStatusText}">
+                                        <Grid IsHitTestVisible="False">
+                                            <Viewbox Width="20" Height="20"
+                                                     IsVisible="{Binding !IsVoiceInputBusy}">
+                                                <Canvas Width="16" Height="16">
+                                                    <Path Data="M 8,1 C 6.35,1 5,2.35 5,4 L 5,8 C 5,9.65 6.35,11 8,11 C 9.65,11 11,9.65 11,8 L 11,4 C 11,2.35 9.65,1 8,1 Z"
+                                                          Fill="#2563EB"/>
+                                                    <Path Data="M 3,7.5 L 3,8 C 3,10.76 5.24,13 8,13 C 10.76,13 13,10.76 13,8 L 13,7.5 M 8,13 L 8,15 M 5.5,15 L 10.5,15"
+                                                          Stroke="#2563EB"
+                                                          StrokeThickness="1.4"
+                                                          StrokeLineCap="Round"/>
+                                                </Canvas>
+                                            </Viewbox>
+                                            <Border Width="15" Height="15" CornerRadius="3"
+                                                    Background="#DC2626"
+                                                    IsVisible="{Binding IsVoiceRecording}"/>
+                                            <TextBlock Text="…"
+                                                       FontSize="19"
+                                                       FontWeight="Bold"
+                                                       Foreground="#7C3AED"
+                                                       IsVisible="{Binding IsVoiceTranscribing}"
+                                                       HorizontalAlignment="Center"
+                                                       VerticalAlignment="Center"/>
+                                        </Grid>
+                                    </Button>
                                     <TextBox Grid.Row="0" Grid.Column="1"
                                              Text="{Binding ChatInput, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                              Watermark="输入消息；Ctrl/⌘+Enter 发送，Enter 换行"

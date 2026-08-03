@@ -113,12 +113,21 @@ public static class DesktopSettingsStore
                 VoiceModelId = settings.VoiceModelId?.Trim() ?? string.Empty,
                 VoiceCustomModelPath = settings.VoiceCustomModelPath?.Trim() ?? string.Empty,
                 VoiceLanguage = NormalizeVoiceLanguage(settings.VoiceLanguage),
+                SttAutoSend = settings.SttAutoSend,
                 WakeWordEnabled = settings.WakeWordEnabled,
                 TtsModelId = settings.TtsModelId?.Trim() ?? string.Empty,
                 TtsCustomModelPath = settings.TtsCustomModelPath?.Trim() ?? string.Empty,
                 TtsSpeakerId = Math.Clamp(settings.TtsSpeakerId, 0, 1024),
                 TtsSpeed = Math.Clamp(settings.TtsSpeed, 0.5, 2.0),
-                TtsAutoRead = settings.TtsAutoRead
+                TtsAutoRead = settings.TtsAutoRead,
+                DesktopRobotWheelZoomEnabled = settings.DesktopRobotWheelZoomEnabled,
+                DesktopRobotMaximumScale = DesktopRobotPlacementPolicy.NormalizeMaximumScale(
+                    settings.DesktopRobotMaximumScale),
+                DesktopRobotScale = DesktopRobotPlacementPolicy.NormalizeScale(
+                    settings.DesktopRobotScale,
+                    settings.DesktopRobotMaximumScale),
+                DesktopRobotPositionX = settings.DesktopRobotPositionX,
+                DesktopRobotPositionY = settings.DesktopRobotPositionY
             };
             var temporaryPath = $"{SettingsFilePath}.tmp.{Environment.ProcessId}";
             try

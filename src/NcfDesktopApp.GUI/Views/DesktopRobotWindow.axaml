@@ -18,19 +18,18 @@
         ExtendClientAreaToDecorationsHint="True"
         ExtendClientAreaChromeHints="NoChrome">
 
-    <Border Margin="8"
-            Padding="12"
-            CornerRadius="18"
-            Background="#F7FFFFFF"
-            BorderBrush="#26007ACC"
-            BorderThickness="1"
-            BoxShadow="0 6 22 0 #42000000"
-            PointerPressed="RootBorder_OnPointerPressed"
-            PointerMoved="RootBorder_OnPointerMoved"
-            PointerExited="RootBorder_OnPointerExited">
-        <Border.ContextMenu>
+    <Canvas x:Name="RootSurface"
+          Width="344"
+          Height="138"
+          Margin="8"
+          HorizontalAlignment="Left"
+          VerticalAlignment="Top"
+          PointerEntered="RevealSurface_OnPointerEntered"
+          PointerExited="RootSurface_OnPointerExited"
+          PointerMoved="RootBorder_OnPointerMoved">
+        <Canvas.ContextMenu>
             <ContextMenu>
-                <MenuItem Header="🎙️ AdminChat 语音输入"
+                <MenuItem Header="AdminChat 语音输入"
                           Click="VoiceInputMenuItem_OnClick"/>
                 <Separator/>
                 <MenuItem Header="自动跟随工作状态"
@@ -49,120 +48,158 @@
                           Tag="Opsi"
                           Click="MascotMenuItem_OnClick"/>
             </ContextMenu>
-        </Border.ContextMenu>
-        <Grid ColumnDefinitions="84,*,Auto" RowDefinitions="Auto,Auto,Auto,Auto">
-            <Grid Grid.RowSpan="4"
-                  Width="80"
-                  Height="80"
-                  HorizontalAlignment="Center"
-                  VerticalAlignment="Center">
-                <controls:AudioGlowRingView Mode="{Binding AudioVisualizationMode}"
-                                            Level="{Binding AudioVisualizationLevel}"
-                                            Bands="{Binding AudioVisualizationBands}"
-                                            InnerDiameter="64"/>
-                <Border Width="64"
-                        Height="64"
-                        CornerRadius="32"
-                        Background="#0B64748B"
-                        BorderBrush="{Binding StateColor}"
-                        BorderThickness="2"
-                        HorizontalAlignment="Center"
-                        VerticalAlignment="Center">
-                    <controls:NcfMascotView x:Name="MascotView"
-                                            Mascot="{Binding Mascot}"
-                                            Pose="{Binding Pose}"
-                                            ShowGlasses="True"
-                                            ShowAudioAura="False"
-                                            GazeX="{Binding GazeX}"
-                                            GazeY="{Binding GazeY}"
-                                            IsInteracting="{Binding IsInteracting}"
-                                            Width="61"
-                                            Height="61"
-                                            ToolTip.Tip="{Binding MascotName}"/>
-                </Border>
-            </Grid>
+        </Canvas.ContextMenu>
 
-            <Grid Grid.Column="1"
-                  Grid.Row="0"
-                  ColumnDefinitions="*,Auto"
-                  ColumnSpacing="8"
-                  VerticalAlignment="Center">
-                <TextBlock Text="{Binding Title}"
+        <!-- 默认隐藏的信息卡。宠物和状态位于其上方，形成从圆形入口探出的效果。 -->
+        <Border x:Name="ExpandedCard"
+                IsVisible="False"
+                Width="302"
+                Height="138"
+                Padding="76,40,12,12"
+                CornerRadius="18"
+                Background="#F4FFFFFF"
+                BorderBrush="#26007ACC"
+                BorderThickness="1"
+                BoxShadow="0 6 22 0 #42000000"
+                PointerPressed="RootBorder_OnPointerPressed">
+            <Grid RowDefinitions="Auto,*,Auto,Auto" RowSpacing="4">
+                <TextBlock Grid.Row="0"
+                           Text="{Binding Title}"
                            FontSize="14"
                            FontWeight="SemiBold"
-                           TextTrimming="CharacterEllipsis"
-                           VerticalAlignment="Center"/>
-                <Border Grid.Column="1"
-                        Height="24"
-                        MinHeight="0"
-                        Padding="7,0"
-                        CornerRadius="8"
-                        Background="{Binding StateColor}"
-                        VerticalAlignment="Center">
-                    <TextBlock Text="{Binding StateText}"
-                               FontSize="10"
-                               Foreground="White"
-                               VerticalAlignment="Center"/>
-                </Border>
-            </Grid>
-
-            <Button Grid.Column="2"
-                    Grid.Row="0"
-                    Width="24"
-                    Height="24"
-                    Padding="0"
-                    Background="Transparent"
-                    Foreground="#777777"
-                    HorizontalContentAlignment="Center"
-                    VerticalContentAlignment="Center"
-                    VerticalAlignment="Center"
-                    ToolTip.Tip="隐藏桌面助手"
-                    Click="HideButton_OnClick">
-                <Path Width="10"
-                      Height="10"
-                      Data="M 1,1 L 9,9 M 9,1 L 1,9"
-                      Stretch="Uniform"
-                      Stroke="#666666"
-                      StrokeThickness="1.7"
-                      StrokeLineCap="Round"
-                      IsHitTestVisible="False"/>
-            </Button>
-
-            <TextBlock Grid.Column="1" Grid.ColumnSpan="2" Grid.Row="1"
-                       Text="{Binding Detail}"
-                       FontSize="12"
-                       Foreground="#444444"
-                       TextWrapping="Wrap"
-                       MaxHeight="38"
-                       Margin="0,5,0,2"/>
-
-            <ProgressBar Grid.Column="1" Grid.ColumnSpan="2" Grid.Row="2"
-                         Value="{Binding Progress}"
-                         IsVisible="{Binding IsProgressVisible}"
-                         Height="4"
-                         Margin="0,3,0,2"/>
-
-            <Grid Grid.Column="1" Grid.ColumnSpan="2" Grid.Row="3" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="6" Margin="0,5,0,0">
-                <TextBlock Text="{Binding ConnectionText}"
-                           FontSize="10"
-                           Foreground="#777777"
-                           VerticalAlignment="Center"
                            TextTrimming="CharacterEllipsis"/>
-                <Button Grid.Column="1"
-                        Content="🎙️"
-                        FontSize="12"
-                        Padding="8,4"
-                        ToolTip.Tip="开始或停止 AdminChat 语音输入"
-                        Click="VoiceInputButton_OnClick"/>
-                <Button Grid.Column="2"
-                        Content="打开 NCF"
-                        FontSize="10"
-                        Padding="10,4"
-                        Background="#007ACC"
-                        Foreground="White"
-                        CornerRadius="8"
-                        Click="OpenMainButton_OnClick"/>
+
+                <TextBlock Grid.Row="1"
+                           Text="{Binding Detail}"
+                           FontSize="11.5"
+                           Foreground="#444444"
+                           TextWrapping="Wrap"
+                           TextTrimming="CharacterEllipsis"
+                           MaxHeight="36"/>
+
+                <ProgressBar Grid.Row="2"
+                             Value="{Binding Progress}"
+                             IsVisible="{Binding IsProgressVisible}"
+                             Height="4"
+                             Margin="0,1,0,1"/>
+
+                <Grid Grid.Row="3"
+                      ColumnDefinitions="*,Auto,Auto"
+                      ColumnSpacing="8">
+                    <TextBlock Text="{Binding ConnectionText}"
+                               FontSize="10"
+                               Foreground="#777777"
+                               VerticalAlignment="Center"
+                               TextTrimming="CharacterEllipsis"/>
+                    <Button Grid.Column="1"
+                            Width="38"
+                            Height="30"
+                            Padding="0"
+                            Background="#2563EB"
+                            Foreground="White"
+                            CornerRadius="8"
+                            HorizontalContentAlignment="Center"
+                            VerticalContentAlignment="Center"
+                            ToolTip.Tip="开始或停止 AdminChat 语音输入"
+                            Click="VoiceInputButton_OnClick">
+                        <Viewbox Width="17" Height="17" IsHitTestVisible="False">
+                            <Canvas Width="16" Height="16">
+                                <Path Data="M 8,1 C 6.35,1 5,2.35 5,4 L 5,8 C 5,9.65 6.35,11 8,11 C 9.65,11 11,9.65 11,8 L 11,4 C 11,2.35 9.65,1 8,1 Z"
+                                      Fill="White"/>
+                                <Path Data="M 3,7.5 L 3,8 C 3,10.76 5.24,13 8,13 C 10.76,13 13,10.76 13,8 L 13,7.5 M 8,13 L 8,15 M 5.5,15 L 10.5,15"
+                                      Stroke="White"
+                                      StrokeThickness="1.4"
+                                      StrokeLineCap="Round"/>
+                            </Canvas>
+                        </Viewbox>
+                    </Button>
+                    <Button Grid.Column="2"
+                            Content="打开 NCF"
+                            FontSize="10"
+                            Padding="10,4"
+                            Background="#007ACC"
+                            Foreground="White"
+                            CornerRadius="8"
+                            Click="OpenMainButton_OnClick"/>
+                </Grid>
             </Grid>
+        </Border>
+
+        <!-- 宠物与信息卡之间的透明悬停桥，避免移动鼠标时卡片提前收起。 -->
+        <Border x:Name="HoverBridge"
+                Width="30"
+                Height="54"
+                Background="#01000000"/>
+
+        <!-- 状态始终紧贴宠物右侧，尺寸固定，不随信息卡或宠物缩放。 -->
+        <Border x:Name="CompactStatus"
+                Height="26"
+                MinHeight="0"
+                Padding="9,0"
+                CornerRadius="9"
+                Background="{Binding StateColor}"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Top">
+            <TextBlock Text="{Binding StateText}"
+                       FontSize="10"
+                       Foreground="White"
+                       FontWeight="SemiBold"
+                       VerticalAlignment="Center"/>
+        </Border>
+
+        <Button x:Name="HideRobotButton"
+                IsVisible="False"
+                Width="24"
+                Height="24"
+                Padding="0"
+                Background="#E8E8E8"
+                HorizontalContentAlignment="Center"
+                VerticalContentAlignment="Center"
+                ToolTip.Tip="隐藏桌面助手"
+                Click="HideButton_OnClick">
+            <Path Width="10"
+                  Height="10"
+                  Data="M 1,1 L 9,9 M 9,1 L 1,9"
+                  Stretch="Uniform"
+                  Stroke="#666666"
+                  StrokeThickness="1.7"
+                  StrokeLineCap="Round"
+                  IsHitTestVisible="False"/>
+        </Button>
+
+        <Grid x:Name="MascotSurface"
+              Width="112"
+              Height="112"
+              RenderTransformOrigin="0%,0%"
+              PointerPressed="RootBorder_OnPointerPressed"
+              PointerWheelChanged="MascotSurface_OnPointerWheelChanged"
+              DoubleTapped="MascotSurface_OnDoubleTapped"
+              ToolTip.Tip="双击启动或停止 AdminChat 语音输入；可在设置中允许滚轮缩放">
+            <controls:AudioGlowRingView Mode="{Binding AudioVisualizationMode}"
+                                        Level="{Binding AudioVisualizationLevel}"
+                                        Bands="{Binding AudioVisualizationBands}"
+                                        InnerDiameter="64"/>
+            <Border Width="64"
+                    Height="64"
+                    CornerRadius="32"
+                    Background="#F7FFFFFF"
+                    BorderBrush="{Binding StateColor}"
+                    BorderThickness="2"
+                    BoxShadow="0 2 9 0 #2D000000"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center">
+                <controls:NcfMascotView x:Name="MascotView"
+                                        Mascot="{Binding Mascot}"
+                                        Pose="{Binding Pose}"
+                                        ShowGlasses="True"
+                                        ShowAudioAura="False"
+                                        GazeX="{Binding GazeX}"
+                                        GazeY="{Binding GazeY}"
+                                        IsInteracting="{Binding IsInteracting}"
+                                        Width="61"
+                                        Height="61"
+                                        ToolTip.Tip="{Binding MascotName}"/>
+            </Border>
         </Grid>
-    </Border>
+    </Canvas>
 </Window>

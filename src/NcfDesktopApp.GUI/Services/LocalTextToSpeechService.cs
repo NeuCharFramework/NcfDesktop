@@ -8,11 +8,13 @@
 ----------------------------------------------------------------*/
 
 using System;
-using System.Diagnostics;
+using System.Buffers;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
+using System.Runtime.InteropServices;
 using System.Threading;
+using System.Threading.Channels;
 using System.Threading.Tasks;
 using NcfDesktopApp.GUI.Models;
 using SharpCompress.Readers;
@@ -44,6 +46,13 @@ internal interface ILocalTextToSpeechService
         float speed,
         CancellationToken cancellationToken);
 
+    Task PlayStreamingAsync(
+        TtsModelFiles files,
+        ChannelReader<string> textChunks,
+        int speakerId,
+        float speed,
+        CancellationToken cancellationToken);
+
     void Stop();
 }
 
@@ -62,6 +71,7 @@ internal sealed class LocalTextToSpeechService : ILocalTextToSpeechService, IDis
     private MiniAudioEngine? _activeEngine;
     private AudioPlaybackDevice? _activeDevice;
     private SoundPlayer? _activePlayer;
+    private StreamingAudioDataProvider? _activeProvider;
     private bool _disposed;
 
     public static LocalTextToSpeechService Shared => SharedInstance.Value;
@@ -176,6 +186,34 @@ internal sealed class LocalTextToSpeechService : ILocalTextToSpeechService, IDis
             throw new InvalidOperationException("这条消息没有可朗读的文本内容。");
         }
 
+        var channel = Channel.CreateUnbounded<string>(new UnboundedChannelOptions
+        {
+            SingleReader = true,
+            SingleWriter = true
+        });
+        foreach (var chunk in chunks)
+        {
+            channel.Writer.TryWrite(chunk);
+        }
+
+        channel.Writer.TryComplete();
+        await PlayStreamingAsync(
+            files,
+            channel.Reader,
+            speakerId,
+            speed,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task PlayStreamingAsync(
+        TtsModelFiles files,
+        ChannelReader<string> textChunks,
+        int speakerId,
+        float speed,
+        CancellationToken cancellationToken)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
         Stop();
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         lock (_playbackLock)
@@ -190,13 +228,43 @@ internal sealed class LocalTextToSpeechService : ILocalTextToSpeechService, IDis
             try
             {
                 var tts = await Task.Run(() => GetOrLoadTts(files), linkedCts.Token).ConfigureAwait(false);
-                foreach (var chunk in chunks)
+                StreamingPlayback? playback = null;
+                try
                 {
-                    linkedCts.Token.ThrowIfCancellationRequested();
-                    var generated = await Task.Run(
-                        () => GenerateAudio(tts, chunk, speakerId, speed, linkedCts.Token),
-                        linkedCts.Token).ConfigureAwait(false);
-                    await PlaySamplesAsync(generated.Samples, generated.SampleRate, linkedCts.Token).ConfigureAwait(false);
+                    await foreach (var chunk in textChunks.ReadAllAsync(linkedCts.Token).ConfigureAwait(false))
+                    {
+                        if (string.IsNullOrWhiteSpace(chunk))
+                        {
+                            continue;
+                        }
+
+                        playback ??= StartStreamingPlayback(tts.SampleRate, linkedCts.Token);
+                        var activePlayback = playback;
+                        await Task.Run(
+                            () => GenerateAudioInto(
+                                tts,
+                                chunk,
+                                speakerId,
+                                speed,
+                                activePlayback.Provider,
+                                linkedCts.Token),
+                            linkedCts.Token).ConfigureAwait(false);
+                    }
+
+                    if (playback == null)
+                    {
+                        throw new InvalidOperationException("这条消息没有可朗读的文本内容。");
+                    }
+
+                    // 末尾保留一小段静音，避免音频回调刚读完最后一帧时立即关闭设备而截断尾音。
+                    playback.Provider.AddSamples(new float[Math.Max(1, tts.SampleRate / 8)]);
+                    playback.Provider.CompleteAdding();
+                    await playback.Completion.Task.WaitAsync(linkedCts.Token).ConfigureAwait(false);
+                    await playback.VisualizationTask.ConfigureAwait(false);
+                }
+                finally
+                {
+                    StopPlaybackDevice();
                 }
             }
             finally
@@ -246,11 +314,12 @@ internal sealed class LocalTextToSpeechService : ILocalTextToSpeechService, IDis
         _operationGate.Dispose();
     }
 
-    private static (float[] Samples, int SampleRate) GenerateAudio(
+    private static void GenerateAudioInto(
         OfflineTts tts,
         string text,
         int speakerId,
         float speed,
+        StreamingAudioDataProvider provider,
         CancellationToken cancellationToken)
     {
         var config = new OfflineTtsGenerationConfig
@@ -259,18 +328,49 @@ internal sealed class LocalTextToSpeechService : ILocalTextToSpeechService, IDis
             Speed = Math.Clamp(speed, 0.5f, 2f),
             SilenceScale = 0.2f
         };
-        var callback = new OfflineTtsCallbackProgressWithArg((_, _, _, _) =>
-            cancellationToken.IsCancellationRequested ? 0 : 1);
+        Exception? callbackFailure = null;
+        var callback = new OfflineTtsCallbackProgressWithArg((samples, count, _, _) =>
+        {
+            if (cancellationToken.IsCancellationRequested || callbackFailure != null)
+            {
+                return 0;
+            }
+
+            if (samples == IntPtr.Zero || count <= 0)
+            {
+                return 1;
+            }
+
+            var buffer = ArrayPool<float>.Shared.Rent(count);
+            try
+            {
+                Marshal.Copy(samples, buffer, 0, count);
+                provider.AddSamples(buffer.AsSpan(0, count));
+                return cancellationToken.IsCancellationRequested ? 0 : 1;
+            }
+            catch (Exception ex)
+            {
+                callbackFailure = ex;
+                return 0;
+            }
+            finally
+            {
+                ArrayPool<float>.Shared.Return(buffer);
+            }
+        });
         var audio = tts.GenerateWithConfig(text, config, callback);
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
+            if (callbackFailure != null)
+            {
+                throw new InvalidOperationException("向音频播放队列写入本地朗读数据失败。", callbackFailure);
+            }
+
             if (audio.NumSamples <= 0 || audio.SampleRate <= 0)
             {
                 throw new InvalidOperationException("本地朗读模型没有生成有效音频。");
             }
-
-            return (audio.Samples, audio.SampleRate);
         }
         finally
         {
@@ -278,11 +378,11 @@ internal sealed class LocalTextToSpeechService : ILocalTextToSpeechService, IDis
         }
     }
 
-    private async Task PlaySamplesAsync(float[] samples, int sampleRate, CancellationToken cancellationToken)
+    private StreamingPlayback StartStreamingPlayback(int sampleRate, CancellationToken cancellationToken)
     {
-        if (samples.Length == 0)
+        if (sampleRate <= 0)
         {
-            return;
+            throw new InvalidOperationException("本地朗读模型返回了无效的采样率。");
         }
 
         var format = new AudioFormat
@@ -298,57 +398,54 @@ internal sealed class LocalTextToSpeechService : ILocalTextToSpeechService, IDis
         var device = engine.InitializePlaybackDevice(
             string.IsNullOrWhiteSpace(selectedDevice.Name) ? null : selectedDevice,
             format);
-        var provider = new RawDataProvider(samples, sampleRate);
+        var provider = new StreamingAudioDataProvider(format, sampleRate * 20);
         var player = new SoundPlayer(engine, format, provider);
         var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        player.PlaybackEnded += (_, _) => completion.TrySetResult();
+        provider.EndOfStreamReached += (_, _) => completion.TrySetResult();
 
         lock (_playbackLock)
         {
             _activeEngine = engine;
             _activeDevice = device;
             _activePlayer = player;
+            _activeProvider = provider;
         }
 
-        using var registration = cancellationToken.Register(() =>
+        cancellationToken.Register(() =>
         {
             completion.TrySetCanceled(cancellationToken);
             StopPlaybackDevice();
         });
-        try
-        {
-            device.MasterMixer.AddComponent(player);
-            device.Start();
-            player.Play();
-            var visualization = PublishPlaybackVisualizationAsync(samples, sampleRate, cancellationToken);
-            await completion.Task.ConfigureAwait(false);
-            await visualization.ConfigureAwait(false);
-        }
-        finally
-        {
-            StopPlaybackDevice();
-        }
+
+        device.MasterMixer.AddComponent(player);
+        device.Start();
+        player.Play();
+        var visualization = PublishStreamingVisualizationAsync(
+            provider,
+            sampleRate,
+            completion.Task,
+            cancellationToken);
+        return new StreamingPlayback(provider, completion, visualization);
     }
 
-    private async Task PublishPlaybackVisualizationAsync(
-        float[] samples,
+    private async Task PublishStreamingVisualizationAsync(
+        StreamingAudioDataProvider provider,
         int sampleRate,
+        Task playbackCompletion,
         CancellationToken cancellationToken)
     {
-        var stopwatch = Stopwatch.StartNew();
         var windowSize = Math.Clamp(sampleRate / 20, 256, 4096);
-        while (!cancellationToken.IsCancellationRequested)
+        var samples = new float[windowSize];
+        long observedVersion = 0;
+        while (!cancellationToken.IsCancellationRequested && !playbackCompletion.IsCompleted)
         {
-            var start = (int)Math.Min(samples.Length, stopwatch.Elapsed.TotalSeconds * sampleRate);
-            if (start >= samples.Length)
+            if (provider.TryCopyLatestSamples(samples, ref observedVersion, out var count))
             {
-                break;
+                PublishVisualization(AudioSpectrumAnalysis.Analyze(
+                    samples.AsSpan(0, count),
+                    sampleRate));
             }
 
-            var count = Math.Min(windowSize, samples.Length - start);
-            PublishVisualization(AudioSpectrumAnalysis.Analyze(
-                samples.AsSpan(start, count),
-                sampleRate));
             await Task.Delay(50, cancellationToken).ConfigureAwait(false);
         }
     }
@@ -472,10 +569,11 @@ internal sealed class LocalTextToSpeechService : ILocalTextToSpeechService, IDis
     /// <summary>调用方必须持有 <see cref="_playbackLock"/>。</summary>
     private PlaybackResources DetachPlaybackResources()
     {
-        var resources = new PlaybackResources(_activePlayer, _activeDevice, _activeEngine);
+        var resources = new PlaybackResources(_activePlayer, _activeDevice, _activeEngine, _activeProvider);
         _activePlayer = null;
         _activeDevice = null;
         _activeEngine = null;
+        _activeProvider = null;
         return resources;
     }
 
@@ -486,6 +584,7 @@ internal sealed class LocalTextToSpeechService : ILocalTextToSpeechService, IDis
         TryCleanup(() => resources.Player?.Dispose());
         TryCleanup(() => resources.Device?.Dispose());
         TryCleanup(() => resources.Engine?.Dispose());
+        TryCleanup(() => resources.Provider?.Dispose());
     }
 
     private void UnloadModelIfPathIsUnder(string directory)
@@ -565,5 +664,11 @@ internal sealed class LocalTextToSpeechService : ILocalTextToSpeechService, IDis
     private readonly record struct PlaybackResources(
         SoundPlayer? Player,
         AudioPlaybackDevice? Device,
-        MiniAudioEngine? Engine);
+        MiniAudioEngine? Engine,
+        StreamingAudioDataProvider? Provider);
+
+    private sealed record StreamingPlayback(
+        StreamingAudioDataProvider Provider,
+        TaskCompletionSource Completion,
+        Task VisualizationTask);
 }

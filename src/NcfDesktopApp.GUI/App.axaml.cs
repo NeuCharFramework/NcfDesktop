@@ -67,6 +67,7 @@ public partial class App : Application
         var robotWindow = new DesktopRobotWindow
         {
             DataContext = viewModel.Robot,
+            WorkspaceViewModel = viewModel,
             OpenMainWindowRequested = () =>
             {
                 if (!mainWindow.IsVisible)
@@ -136,11 +137,9 @@ public partial class App : Application
         mainWindow.Opened += (_, _) => robotWindow.Show();
         mainWindow.Closed += async (_, _) =>
         {
+            // 即使用户先隐藏了宠物，也要关闭其窗口，让 Closed 统一保存最后位置与大小。
+            robotWindow.Close();
             await viewModel.CancelVoiceInputForShutdownAsync();
-            if (robotWindow.IsVisible)
-            {
-                robotWindow.Close();
-            }
             _workspaceWindows.Remove(mainWindow);
         };
         _workspaceWindows.Add(mainWindow);

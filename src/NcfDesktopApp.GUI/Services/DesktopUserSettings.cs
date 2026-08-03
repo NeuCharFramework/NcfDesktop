@@ -84,6 +84,11 @@ public sealed class DesktopUserSettings
     public string VoiceLanguage { get; set; } = "auto";
 
     /// <summary>
+    /// STT 识别完成后是否直接发送到 AdminChat。默认关闭，保留用户确认识别结果的机会。
+    /// </summary>
+    public bool SttAutoSend { get; set; }
+
+    /// <summary>
     /// 是否启用固定唤醒词监听。默认关闭，避免升级后在用户不知情时常驻麦克风。
     /// </summary>
     public bool WakeWordEnabled { get; set; }
@@ -112,4 +117,26 @@ public sealed class DesktopUserSettings
     /// AdminChat 回复完成后是否自动朗读。默认关闭，避免意外播放声音。
     /// </summary>
     public bool TtsAutoRead { get; set; }
+
+    /// <summary>
+    /// 鼠标位于桌面宠物上方时，是否允许使用滚轮调整浮窗大小。
+    /// </summary>
+    public bool DesktopRobotWheelZoomEnabled { get; set; }
+
+    /// <summary>
+    /// 桌面宠物当前缩放倍率。1.0 为产品默认大小，也是允许的下限。
+    /// </summary>
+    public double DesktopRobotScale { get; set; } = DesktopRobotPlacementPolicy.MinimumScale;
+
+    /// <summary>
+    /// 桌面宠物允许的最大缩放倍率。
+    /// </summary>
+    public double DesktopRobotMaximumScale { get; set; } = DesktopRobotPlacementPolicy.DefaultMaximumScale;
+
+    /// <summary>
+    /// 桌面宠物上次关闭时的屏幕像素坐标；空值表示尚未保存。
+    /// </summary>
+    public int? DesktopRobotPositionX { get; set; }
+
+    public int? DesktopRobotPositionY { get; set; }
 }

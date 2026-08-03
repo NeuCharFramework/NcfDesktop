@@ -12,7 +12,7 @@ namespace NcfDesktopApp.GUI.Views.Controls;
 /// </summary>
 public sealed class AudioGlowRingView : Control
 {
-    private const int RingCount = 4;
+    private const int RingCount = 7;
     private static readonly Color QuietColor = Color.Parse("#22D3EE");
     private static readonly Color LoudColor = Color.Parse("#A855F7");
 
@@ -95,16 +95,18 @@ public sealed class AudioGlowRingView : Control
         var innerRadius = Math.Max(1, InnerDiameter / 2);
         var availableSpread = Math.Max(1, Math.Min(Bounds.Width, Bounds.Height) / 2 - innerRadius - 1);
         var response = Math.Clamp(_smoothedLevel * .72 + _smoothedFrequencyEnergy * .28, 0, 1);
-        var spread = Math.Min(availableSpread, 2.2 + availableSpread * response);
+        // 即使音量较低也保留一圈清晰的外发光；音量与频段能量共同推动外沿扩散。
+        // 仍然只绘制少量矢量描边，不使用 Blur / BoxShadow，避免朗读期间增加 GPU 压力。
+        var spread = Math.Min(availableSpread, 7 + availableSpread * .92 * response);
         var color = Mix(QuietColor, LoudColor, _smoothedLevel);
-        var coreAlpha = 55 + 110 * response;
+        var coreAlpha = 155 + 70 * response;
 
         for (var index = 0; index < RingCount; index++)
         {
-            var position = (index + 1d) / RingCount;
+            var position = index / (double)Math.Max(1, RingCount - 1);
             var radius = innerRadius + .8 + spread * position;
-            var alpha = (byte)Math.Clamp(coreAlpha * (1 - position * .68), 18, 150);
-            var thickness = Math.Max(.8, 2.1 - position * .85);
+            var alpha = (byte)Math.Clamp(coreAlpha * (1 - position * .76), 34, 220);
+            var thickness = Math.Max(1, 2.8 - position * 1.3);
             context.DrawEllipse(
                 null,
                 new Pen(new SolidColorBrush(Color.FromArgb(alpha, color.R, color.G, color.B)), thickness),

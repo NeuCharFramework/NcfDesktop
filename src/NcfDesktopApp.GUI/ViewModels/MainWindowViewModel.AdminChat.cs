@@ -242,12 +242,18 @@ public partial class MainWindowViewModel
     }
 
     [RelayCommand(CanExecute = nameof(CanSendAdminChatMessage))]
-    private async Task SendAdminChatMessage()
+    private Task SendAdminChatMessage() => SendAdminChatMessageCoreAsync();
+
+    /// <summary>
+    /// 手动发送和 STT 自动发送共用的唯一入口，保证鉴权、流式响应和失败恢复行为一致。
+    /// </summary>
+    /// <returns>消息是否完成发送；失败时原始内容会恢复到输入框。</returns>
+    private async Task<bool> SendAdminChatMessageCoreAsync()
     {
         var content = ChatInput.Trim();
         if (content.Length == 0)
         {
-            return;
+            return false;
         }
 
         IsAdminChatBusy = true;
@@ -267,30 +273,42 @@ public partial class MainWindowViewModel
             var optimisticUserId = await Dispatcher.UIThread.InvokeAsync(() =>
                 AddOptimisticUserMessage(sessionId, content));
             _activeStreamingAssistantId = 0;
+            BeginStreamingAutoRead(sessionId);
 
             await _adminChatClient.SendMessageStreamingAsync(
                 SiteUrl,
                 sessionId,
                 content,
                 onUserMessage: message => ReconcileUserMessage(optimisticUserId, message),
-                onToken: chunk => AppendStreamingAssistantChunk(sessionId, chunk),
+                onToken: chunk => HandleStreamingAssistantChunk(sessionId, chunk),
                 onAssistantMessage: message => CompleteStreamingAssistantMessage(message),
                 cancellationToken: _cancellationTokenSource?.Token ?? CancellationToken.None);
 
             await RefreshAdminChatSessionsAsync(loadSelectedMessages: true, preferredSessionId: sessionId);
             AdminChatStatusText = "消息已通过 Admin Chat API 完成，并由 EventBus 通知同步。";
+            return true;
         }
         catch (AdminChatApiException ex)
         {
             RemovePendingStreamingMessages();
             ChatInput = content;
             HandleAdminChatApiFailure(ex);
+            return false;
         }
         catch (OperationCanceledException)
         {
             RemovePendingStreamingMessages();
             ChatInput = content;
             AdminChatStatusText = "发送已取消。";
+            return false;
+        }
+        catch (Exception ex)
+        {
+            RemovePendingStreamingMessages();
+            ChatInput = content;
+            AdminChatStatusText = $"发送失败：{ex.Message}";
+            AddLog($"❌ Admin Chat 发送失败: {ex.Message}");
+            return false;
         }
         finally
         {
@@ -558,6 +576,12 @@ public partial class MainWindowViewModel
         ScheduleStreamingChunkFlush();
     }
 
+    private void HandleStreamingAssistantChunk(int sessionId, string chunk)
+    {
+        AppendStreamingAssistantChunk(sessionId, chunk);
+        AppendStreamingAutoReadChunk(sessionId, chunk);
+    }
+
     private void ScheduleStreamingChunkFlush()
     {
         if (Interlocked.CompareExchange(ref _streamingChunkFlushScheduled, 1, 0) != 0)
@@ -654,12 +678,16 @@ public partial class MainWindowViewModel
             RemoveMessageById(_activeStreamingAssistantId);
             AddOrReplaceAdminChatMessage(message);
             _activeStreamingAssistantId = 0;
-            _ = TryAutoReadAssistantMessageAsync(message);
+            if (!CompleteStreamingAutoRead(message))
+            {
+                _ = TryAutoReadAssistantMessageAsync(message);
+            }
         });
     }
 
     private void RemovePendingStreamingMessages()
     {
+        CancelActiveStreamingAutoRead();
         ClearPendingStreamingChunks();
         Dispatcher.UIThread.Post(() =>
         {

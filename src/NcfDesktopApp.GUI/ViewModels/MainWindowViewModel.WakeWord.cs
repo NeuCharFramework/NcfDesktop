@@ -121,7 +121,8 @@ public partial class MainWindowViewModel
                     var expectedBytes = download.TotalBytes is > 0
                         ? download.TotalBytes.Value
                         : WakeWordModelCatalog.ApproximateDownloadBytes;
-                    if (!sourceChanged &&
+                    if (download.Stage == WakeWordDownloadStage.Downloading &&
+                        !sourceChanged &&
                         download.DownloadedBytes - lastReportedBytes < 512 * 1024 &&
                         download.DownloadedBytes < expectedBytes)
                     {
@@ -132,6 +133,16 @@ public partial class MainWindowViewModel
                     lastReportedBytes = download.DownloadedBytes;
                     Dispatcher.UIThread.Post(() =>
                     {
+                        if (download.Stage == WakeWordDownloadStage.SourceFailed)
+                        {
+                            var detail = string.IsNullOrWhiteSpace(download.Detail)
+                                ? "未知错误"
+                                : download.Detail;
+                            WakeWordDownloadProgressText = $"{download.SourceName}失败：{detail}；正在尝试备用源…";
+                            AddLog($"⚠️ 唤醒模型下载源失败（{download.SourceName}）：{detail}");
+                            return;
+                        }
+
                         var hasKnownTotal = download.TotalBytes is > 0;
                         var percent = Math.Clamp(
                             download.DownloadedBytes * 100d / expectedBytes,
@@ -139,11 +150,15 @@ public partial class MainWindowViewModel
                             100);
                         WakeWordDownloadProgressValue = percent;
                         IsWakeWordDownloadProgressIndeterminate = !hasKnownTotal;
-                        WakeWordDownloadProgressText = download.DownloadedBytes == 0
-                            ? $"正在连接 {download.SourceName}…"
-                            : $"{download.SourceName}：已下载 " +
-                              $"{VoiceModelCatalog.FormatBytes(download.DownloadedBytes)} / " +
-                              $"{VoiceModelCatalog.FormatBytes(expectedBytes)}（{percent:F0}%）";
+                        WakeWordDownloadProgressText = download.Stage switch
+                        {
+                            WakeWordDownloadStage.Connecting => $"正在连接 {download.SourceName}…",
+                            WakeWordDownloadStage.Validating =>
+                                $"{download.SourceName} 下载完成，正在校验文件完整性…",
+                            _ => $"{download.SourceName}：已下载 " +
+                                 $"{VoiceModelCatalog.FormatBytes(download.DownloadedBytes)} / " +
+                                 $"{VoiceModelCatalog.FormatBytes(expectedBytes)}（{percent:F0}%）"
+                        };
                     });
                 },
                 _wakeWordModelDownloadCts.Token).ConfigureAwait(true);

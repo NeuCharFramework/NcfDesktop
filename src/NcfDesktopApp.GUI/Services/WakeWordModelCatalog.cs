@@ -167,4 +167,14 @@ internal sealed record WakeWordDownloadSource(string DisplayName, string Url);
 internal sealed record WakeWordDownloadProgress(
     string SourceName,
     long DownloadedBytes,
-    long? TotalBytes);
+    long? TotalBytes,
+    WakeWordDownloadStage Stage = WakeWordDownloadStage.Downloading,
+    string? Detail = null);
+
+internal enum WakeWordDownloadStage
+{
+    Connecting,
+    Downloading,
+    Validating,
+    SourceFailed
+}

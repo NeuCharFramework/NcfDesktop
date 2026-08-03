@@ -12,6 +12,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading;
+using System.Threading.Channels;
 using System.Threading.Tasks;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
@@ -29,6 +30,9 @@ public partial class MainWindowViewModel
     private CancellationTokenSource? _ttsModelDownloadCts;
     private int? _speakingMessageId;
     private bool _audioServicesInitialized;
+    private readonly object _streamingTtsLock = new();
+    private StreamingTtsSessionState? _streamingTtsSession;
+    private int _streamingTtsHandledSessionId;
 
     [ObservableProperty]
     private TtsModelOption? _selectedTtsModel;
@@ -337,6 +341,214 @@ public partial class MainWindowViewModel
         return PlayTtsTextAsync(message.Id, message.Content);
     }
 
+    internal bool BeginStreamingAutoRead(int sessionId)
+    {
+        _streamingTtsHandledSessionId = 0;
+        if (!TtsAutoRead || sessionId <= 0 || IsVoiceRecording || IsVoiceTranscribing)
+        {
+            return false;
+        }
+
+        var readiness = TtsModelCatalog.Evaluate(SelectedTtsModel, TtsCustomModelPath);
+        ApplyTtsModelReadiness(readiness);
+        if (!readiness.IsReady || readiness.Files == null)
+        {
+            return false;
+        }
+
+        StopTtsPlayback();
+        var cts = new CancellationTokenSource();
+        var channel = Channel.CreateUnbounded<string>(new UnboundedChannelOptions
+        {
+            SingleReader = true,
+            SingleWriter = false
+        });
+        var state = new StreamingTtsSessionState(
+            sessionId,
+            new StreamingTtsTextBuffer(),
+            channel,
+            readiness.Files,
+            SelectedTtsVoice?.SpeakerId ?? 45,
+            (float)TtsSpeed,
+            cts);
+        lock (_streamingTtsLock)
+        {
+            _streamingTtsSession = state;
+            _streamingTtsHandledSessionId = sessionId;
+        }
+
+        _ttsPlaybackCts = cts;
+        return true;
+    }
+
+    internal void AppendStreamingAutoReadChunk(int sessionId, string chunk)
+    {
+        StreamingTtsSessionState? stateToStart = null;
+        lock (_streamingTtsLock)
+        {
+            var state = _streamingTtsSession;
+            if (state == null || state.SessionId != sessionId || state.Cancellation.IsCancellationRequested)
+            {
+                return;
+            }
+
+            QueueStreamingSpeechChunks(state, state.TextBuffer.Append(chunk));
+            if (state.HasQueuedSpeech && !state.PlaybackScheduled)
+            {
+                state.PlaybackScheduled = true;
+                stateToStart = state;
+            }
+        }
+
+        if (stateToStart != null)
+        {
+            Dispatcher.UIThread.Post(() => _ = RunStreamingTtsPlaybackAsync(stateToStart));
+        }
+    }
+
+    internal bool CompleteStreamingAutoRead(AdminChatMessage message)
+    {
+        StreamingTtsSessionState? stateToStart = null;
+        StreamingTtsSessionState? stateToDispose = null;
+        bool handled;
+        lock (_streamingTtsLock)
+        {
+            var state = _streamingTtsSession;
+            if (state == null || state.SessionId != message.SessionId)
+            {
+                handled = _streamingTtsHandledSessionId == message.SessionId;
+                if (handled)
+                {
+                    _streamingTtsHandledSessionId = 0;
+                }
+
+                return handled;
+            }
+
+            handled = true;
+            state.FinalMessageId = message.Id;
+            QueueStreamingSpeechChunks(state, state.TextBuffer.Complete(message.Content));
+            state.Channel.Writer.TryComplete();
+            if (state.HasQueuedSpeech && !state.PlaybackScheduled)
+            {
+                state.PlaybackScheduled = true;
+                stateToStart = state;
+            }
+            else if (!state.HasQueuedSpeech)
+            {
+                _streamingTtsSession = null;
+                stateToDispose = state;
+            }
+
+            _streamingTtsHandledSessionId = 0;
+        }
+
+        if (stateToDispose != null)
+        {
+            if (ReferenceEquals(_ttsPlaybackCts, stateToDispose.Cancellation))
+            {
+                _ttsPlaybackCts = null;
+            }
+
+            stateToDispose.Cancellation.Dispose();
+        }
+
+        if (stateToStart != null)
+        {
+            Dispatcher.UIThread.Post(() => _ = RunStreamingTtsPlaybackAsync(stateToStart));
+        }
+        else if (IsTtsPlaying)
+        {
+            _speakingMessageId = message.Id;
+        }
+
+        return handled;
+    }
+
+    private static void QueueStreamingSpeechChunks(
+        StreamingTtsSessionState state,
+        IReadOnlyList<string> chunks)
+    {
+        foreach (var speechChunk in chunks)
+        {
+            if (state.Channel.Writer.TryWrite(speechChunk))
+            {
+                state.HasQueuedSpeech = true;
+            }
+        }
+    }
+
+    private async Task RunStreamingTtsPlaybackAsync(StreamingTtsSessionState state)
+    {
+        lock (_streamingTtsLock)
+        {
+            if (!ReferenceEquals(_streamingTtsSession, state) || state.Cancellation.IsCancellationRequested)
+            {
+                state.Cancellation.Dispose();
+                return;
+            }
+
+        }
+
+        try
+        {
+            await StopWakeWordListeningForOperationAsync().ConfigureAwait(true);
+            state.Cancellation.Token.ThrowIfCancellationRequested();
+            _speakingMessageId = state.FinalMessageId;
+            IsTtsPlaying = true;
+            TtsPlaybackStatusText = "正在边接收回答边本机朗读…";
+            Robot.SetSpeechState("正在流式朗读", "AI 回复正在生成，并通过本地 Kokoro 模型连续朗读");
+
+            await _ttsService.PlayStreamingAsync(
+                state.Files,
+                state.Channel.Reader,
+                state.SpeakerId,
+                state.Speed,
+                state.Cancellation.Token);
+            if (!state.Cancellation.IsCancellationRequested && ReferenceEquals(_ttsPlaybackCts, state.Cancellation))
+            {
+                TtsPlaybackStatusText = "朗读完成。";
+                Robot.SetSpeechState("朗读完成", "AI 回复已在本机播放完毕");
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            if (ReferenceEquals(_ttsPlaybackCts, state.Cancellation))
+            {
+                TtsPlaybackStatusText = "朗读已停止。";
+            }
+        }
+        catch (Exception ex)
+        {
+            if (ReferenceEquals(_ttsPlaybackCts, state.Cancellation))
+            {
+                TtsPlaybackStatusText = $"朗读失败：{ex.Message}";
+                Robot.SetSpeechState("朗读失败", ex.Message, isError: true);
+                AddLog($"❌ 本地流式朗读失败: {ex.Message}");
+            }
+        }
+        finally
+        {
+            lock (_streamingTtsLock)
+            {
+                if (ReferenceEquals(_streamingTtsSession, state))
+                {
+                    _streamingTtsSession = null;
+                }
+            }
+
+            if (ReferenceEquals(_ttsPlaybackCts, state.Cancellation))
+            {
+                _ttsPlaybackCts = null;
+                _speakingMessageId = null;
+                IsTtsPlaying = false;
+            }
+
+            state.Cancellation.Dispose();
+            ScheduleWakeWordListeningRefresh();
+        }
+    }
+
     private async Task PlayTtsTextAsync(int messageId, string text)
     {
         var readiness = TtsModelCatalog.Evaluate(SelectedTtsModel, TtsCustomModelPath);
@@ -407,6 +619,7 @@ public partial class MainWindowViewModel
 
     private void StopTtsPlayback()
     {
+        CancelStreamingTtsSession();
         _ttsPlaybackCts?.Cancel();
         _ttsService.Stop();
         _speakingMessageId = null;
@@ -414,6 +627,48 @@ public partial class MainWindowViewModel
         if (!IsVoiceRecording)
         {
             ApplyAudioVisualization(AudioVisualizationMode.None, AudioVisualizationFrame.Silent);
+        }
+    }
+
+    internal void CancelActiveStreamingAutoRead()
+    {
+        bool hasActiveStream;
+        lock (_streamingTtsLock)
+        {
+            hasActiveStream = _streamingTtsSession != null;
+            _streamingTtsHandledSessionId = 0;
+        }
+
+        if (hasActiveStream)
+        {
+            StopTtsPlayback();
+        }
+    }
+
+    private void CancelStreamingTtsSession()
+    {
+        StreamingTtsSessionState? state;
+        lock (_streamingTtsLock)
+        {
+            state = _streamingTtsSession;
+            _streamingTtsSession = null;
+        }
+
+        if (state == null)
+        {
+            return;
+        }
+
+        state.Channel.Writer.TryComplete();
+        state.Cancellation.Cancel();
+        if (ReferenceEquals(_ttsPlaybackCts, state.Cancellation))
+        {
+            _ttsPlaybackCts = null;
+        }
+
+        if (!state.PlaybackScheduled)
+        {
+            state.Cancellation.Dispose();
         }
     }
 
@@ -479,5 +734,35 @@ public partial class MainWindowViewModel
         _voiceInputService.VisualizationFrameAvailable -= OnVoiceVisualizationFrame;
         _ttsService.VisualizationFrameAvailable -= OnTtsVisualizationFrame;
         _audioServicesInitialized = false;
+    }
+
+    private sealed class StreamingTtsSessionState(
+        int sessionId,
+        StreamingTtsTextBuffer textBuffer,
+        Channel<string> channel,
+        TtsModelFiles files,
+        int speakerId,
+        float speed,
+        CancellationTokenSource cancellation)
+    {
+        public int SessionId { get; } = sessionId;
+
+        public StreamingTtsTextBuffer TextBuffer { get; } = textBuffer;
+
+        public Channel<string> Channel { get; } = channel;
+
+        public TtsModelFiles Files { get; } = files;
+
+        public int SpeakerId { get; } = speakerId;
+
+        public float Speed { get; } = speed;
+
+        public CancellationTokenSource Cancellation { get; } = cancellation;
+
+        public bool HasQueuedSpeech { get; set; }
+
+        public bool PlaybackScheduled { get; set; }
+
+        public int? FinalMessageId { get; set; }
     }
 }

@@ -135,6 +135,21 @@ public partial class MainWindowViewModel : ViewModelBase
     private string _aspNetCoreEnvironment = "Production";
 
     [ObservableProperty]
+    private bool _desktopRobotWheelZoomEnabled;
+
+    [ObservableProperty]
+    private double _desktopRobotScale = DesktopRobotPlacementPolicy.MinimumScale;
+
+    [ObservableProperty]
+    private double _desktopRobotMaximumScale = DesktopRobotPlacementPolicy.DefaultMaximumScale;
+
+    [ObservableProperty]
+    private int? _desktopRobotPositionX;
+
+    [ObservableProperty]
+    private int? _desktopRobotPositionY;
+
+    [ObservableProperty]
     private string? _selectedRecentNcfPath;
 
     [ObservableProperty]
@@ -389,6 +404,38 @@ public partial class MainWindowViewModel : ViewModelBase
 
     partial void OnShowDetailedInfoChanged(bool value) => SaveDesktopSettings();
 
+    partial void OnDesktopRobotWheelZoomEnabledChanged(bool value) => SaveDesktopSettings();
+
+    partial void OnDesktopRobotScaleChanged(double value)
+    {
+        var normalized = DesktopRobotPlacementPolicy.NormalizeScale(value, DesktopRobotMaximumScale);
+        if (Math.Abs(normalized - value) > .0001)
+        {
+            DesktopRobotScale = normalized;
+            return;
+        }
+
+        SaveDesktopSettings();
+    }
+
+    partial void OnDesktopRobotMaximumScaleChanged(double value)
+    {
+        var normalized = DesktopRobotPlacementPolicy.NormalizeMaximumScale(value);
+        if (Math.Abs(normalized - value) > .0001)
+        {
+            DesktopRobotMaximumScale = normalized;
+            return;
+        }
+
+        if (DesktopRobotScale > normalized)
+        {
+            DesktopRobotScale = normalized;
+            return;
+        }
+
+        SaveDesktopSettings();
+    }
+
     partial void OnStartPortChanged(int value)
     {
         if (value > EndPort)
@@ -571,13 +618,59 @@ public partial class MainWindowViewModel : ViewModelBase
             VoiceModelId = SelectedVoiceModel?.Id ?? string.Empty,
             VoiceCustomModelPath = VoiceCustomModelPath,
             VoiceLanguage = VoiceLanguage,
+            SttAutoSend = SttAutoSend,
             WakeWordEnabled = WakeWordEnabled,
             TtsModelId = SelectedTtsModel?.Id ?? string.Empty,
             TtsCustomModelPath = TtsCustomModelPath,
             TtsSpeakerId = SelectedTtsVoice?.SpeakerId ?? 45,
             TtsSpeed = TtsSpeed,
-            TtsAutoRead = TtsAutoRead
+            TtsAutoRead = TtsAutoRead,
+            DesktopRobotWheelZoomEnabled = DesktopRobotWheelZoomEnabled,
+            DesktopRobotScale = DesktopRobotScale,
+            DesktopRobotMaximumScale = DesktopRobotMaximumScale,
+            DesktopRobotPositionX = DesktopRobotPositionX,
+            DesktopRobotPositionY = DesktopRobotPositionY
         });
+    }
+
+    internal void SaveDesktopRobotPlacement(PixelPoint position, double scale)
+    {
+        _suppressDesktopSettingsSave = true;
+        try
+        {
+            DesktopRobotPositionX = position.X;
+            DesktopRobotPositionY = position.Y;
+            DesktopRobotScale = DesktopRobotPlacementPolicy.NormalizeScale(
+                scale,
+                DesktopRobotMaximumScale);
+        }
+        finally
+        {
+            _suppressDesktopSettingsSave = false;
+        }
+
+        SaveDesktopSettings();
+    }
+
+    internal void UpdateDesktopRobotScaleFromWindow(double scale)
+    {
+        _suppressDesktopSettingsSave = true;
+        try
+        {
+            DesktopRobotScale = DesktopRobotPlacementPolicy.NormalizeScale(
+                scale,
+                DesktopRobotMaximumScale);
+        }
+        finally
+        {
+            _suppressDesktopSettingsSave = false;
+        }
+    }
+
+    [RelayCommand]
+    private void ResetDesktopRobotSize()
+    {
+        DesktopRobotScale = DesktopRobotPlacementPolicy.MinimumScale;
     }
 
     private void RefreshSelectedLaunchTarget()
@@ -1266,12 +1359,21 @@ public partial class MainWindowViewModel : ViewModelBase
                 VoiceCustomModelPath = desktopSettings.VoiceCustomModelPath ?? string.Empty;
                 VoiceLanguage = NormalizeVoiceLanguage(desktopSettings.VoiceLanguage);
                 SelectedVoiceModel = VoiceModelCatalog.FindById(desktopSettings.VoiceModelId);
+                SttAutoSend = desktopSettings.SttAutoSend;
                 WakeWordEnabled = desktopSettings.WakeWordEnabled;
                 TtsCustomModelPath = desktopSettings.TtsCustomModelPath ?? string.Empty;
                 SelectedTtsModel = TtsModelCatalog.FindById(desktopSettings.TtsModelId);
                 SelectedTtsVoice = TtsModelCatalog.FindVoice(desktopSettings.TtsSpeakerId);
                 TtsSpeed = Math.Clamp(desktopSettings.TtsSpeed, 0.5, 2.0);
                 TtsAutoRead = desktopSettings.TtsAutoRead;
+                DesktopRobotWheelZoomEnabled = desktopSettings.DesktopRobotWheelZoomEnabled;
+                DesktopRobotMaximumScale = DesktopRobotPlacementPolicy.NormalizeMaximumScale(
+                    desktopSettings.DesktopRobotMaximumScale);
+                DesktopRobotScale = DesktopRobotPlacementPolicy.NormalizeScale(
+                    desktopSettings.DesktopRobotScale,
+                    DesktopRobotMaximumScale);
+                DesktopRobotPositionX = desktopSettings.DesktopRobotPositionX;
+                DesktopRobotPositionY = desktopSettings.DesktopRobotPositionY;
                 LaunchTargetKind = desktopSettings.LaunchTargetKind;
                 RecentNcfPaths.Clear();
                 foreach (var path in desktopSettings.RecentNcfPaths ?? new List<string>())

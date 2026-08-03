@@ -142,6 +142,31 @@ public sealed class WakeWordModelCatalogTests
     }
 
     [TestMethod]
+    public async Task WriteDownloadedFileAsync_ClosesDestinationBeforeReturning()
+    {
+        var directory = CreateTemporaryDirectory();
+        var archivePath = Path.Combine(directory, "download.bin");
+        var expected = Encoding.UTF8.GetBytes("wake-word-download");
+        await using var source = new MemoryStream(expected);
+
+        var written = await LocalWakeWordService.WriteDownloadedFileAsync(
+            source,
+            archivePath,
+            progress: null,
+            CancellationToken.None);
+
+        Assert.AreEqual(expected.Length, written);
+        await using var reopened = new FileStream(
+            archivePath,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read);
+        using var copy = new MemoryStream();
+        await reopened.CopyToAsync(copy);
+        CollectionAssert.AreEqual(expected, copy.ToArray());
+    }
+
+    [TestMethod]
     public void ShouldListen_WhenAllPrerequisitesAreReady_UsesMicrophone()
     {
         var result = WakeWordListeningPolicy.ShouldListen(

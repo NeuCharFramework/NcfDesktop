@@ -13,3 +13,8 @@ src/NcfDesktopApp.GUI/publish-self-contained/
 src/NcfDesktopApp.GUI/publish-self-contained.pre-package-*
 src/NcfDesktopApp.GUI/macos-app/
 src/NcfDesktopApp.GUI/macos-app.pre-package-*
+codex-skills/senparc-version-updater/SKILL.md
+codex-skills/senparc-version-updater/agents/openai.yaml
+codex-skills/senparc-version-updater/references/header-template.md
+codex-skills/senparc-version-updater/references/versioning-policy.md
+codex-skills/
