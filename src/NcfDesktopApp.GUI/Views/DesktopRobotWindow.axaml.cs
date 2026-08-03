@@ -9,6 +9,9 @@
     修改标识：Senparc - 20260804
     修改描述：v0.6.0 增加桌面机器人缩放、位置恢复与多屏约束
 
+    修改标识：Senparc - 20260804
+    修改描述：v0.7.0 在原生窗口释放前保存位置，避免关闭工作台时访问已释放窗口
+
 ----------------------------------------------------------------*/
 
 using System;
@@ -66,17 +69,8 @@ public partial class DesktopRobotWindow : Window
             Robot?.ResetGaze();
             _globalPointerTimer.Start();
         };
-        Closed += (_, _) =>
-        {
-            SavePlacement();
-            _isOpened = false;
-            _globalPointerTimer.Stop();
-            _placementSaveTimer.Stop();
-            if (_workspaceViewModel != null)
-            {
-                _workspaceViewModel.PropertyChanged -= WorkspaceViewModel_OnPropertyChanged;
-            }
-        };
+        Closing += OnWindowClosing;
+        Closed += OnWindowClosed;
     }
 
     public Action? OpenMainWindowRequested { get; set; }
@@ -295,6 +289,53 @@ public partial class DesktopRobotWindow : Window
         if (_isOpened && WorkspaceViewModel != null)
         {
             WorkspaceViewModel.SaveDesktopRobotPlacement(Position, _currentScale);
+        }
+    }
+
+    private void OnWindowClosing(object? sender, WindowClosingEventArgs e)
+    {
+        if (!_isOpened)
+        {
+            return;
+        }
+
+        // Closing 发生在原生窗口实现释放之前。先保存仍然有效的位置，再把窗口标记为
+        // 非活动并解除属性订阅，避免保存位置触发 RestorePlacementOrUseDefault，进而在
+        // Closed 阶段通过 Screens.ScreenFromWindow 访问已释放的平台窗口。
+        var position = Position;
+        var workspaceViewModel = _workspaceViewModel;
+
+        _isOpened = false;
+        StopWindowTracking(workspaceViewModel);
+
+        if (workspaceViewModel == null)
+        {
+            return;
+        }
+
+        try
+        {
+            workspaceViewModel.SaveDesktopRobotPlacement(position, _currentScale);
+        }
+        catch (Exception ex)
+        {
+            CrashDiagnosticService.ReportHandledException("保存桌面机器人关闭位置", ex);
+        }
+    }
+
+    private void OnWindowClosed(object? sender, EventArgs e)
+    {
+        _isOpened = false;
+        StopWindowTracking(_workspaceViewModel);
+    }
+
+    private void StopWindowTracking(MainWindowViewModel? workspaceViewModel)
+    {
+        _globalPointerTimer.Stop();
+        _placementSaveTimer.Stop();
+        if (workspaceViewModel != null)
+        {
+            workspaceViewModel.PropertyChanged -= WorkspaceViewModel_OnPropertyChanged;
         }
     }
 

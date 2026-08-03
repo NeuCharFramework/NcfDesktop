@@ -38,9 +38,10 @@ sealed class Program
                 Console.WriteLine($"   Type: {ex.InnerException.GetType().Name}");
                 Console.WriteLine($"   Message: {ex.InnerException.Message}");
             }
-            
-            Console.WriteLine("\n\nPress any key to exit...");
-            Console.ReadKey();
+
+            // macOS .app 和 Windows GUI 发布物通常没有交互式控制台。
+            // 这里不能等待按键，否则会用 Console.ReadKey 的 InvalidOperationException
+            // 覆盖真正的启动或运行时异常。
             throw;
         }
     }
