@@ -233,6 +233,7 @@ Azure Release 流水线会自动执行 `.app`/DMG 生成步骤：macOS 架构 ZI
 ## 🔧 系统要求
 
 - **.NET 10.0 SDK** 或更高版本
+- 当前应用目标运行时固定为 `net8.0`，用于兼容 WebView.Avalonia 的 macOS 原生桥；.NET 10 SDK 可正常构建该目标
 - **足够的磁盘空间**（每个平台约 50-100 MB）
 - **网络连接**（用于 NuGet 包还原）
 

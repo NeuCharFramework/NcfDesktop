@@ -21,7 +21,10 @@ using Avalonia.Markup.Xaml;
 using NcfDesktopApp.GUI.ViewModels;
 using NcfDesktopApp.GUI.Views;
 using AvaloniaWebView;
+using System;
 using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
 using NcfDesktopApp.GUI.Services;
 
 namespace NcfDesktopApp.GUI;
@@ -29,6 +32,7 @@ namespace NcfDesktopApp.GUI;
 public partial class App : Application
 {
     private readonly List<MainWindow> _workspaceWindows = new();
+    private int _workspaceCloseOperations;
 
     public override void RegisterServices()
     {
@@ -48,8 +52,9 @@ public partial class App : Application
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
-            // 每个窗口拥有独立的进程/端口/Bridge 会话；最后一个工作台关闭后才退出。
-            desktop.ShutdownMode = ShutdownMode.OnLastWindowClose;
+            // 顶层窗口还包括每个工作台的宠物与二级窗口，不能让框架根据任意窗口关闭
+            // 自动判断进程退出。工作台列表清零且清理结束后再显式 Shutdown。
+            desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
             desktop.Exit += (_, _) =>
             {
                 LocalWakeWordService.DisposeShared();
@@ -148,13 +153,8 @@ public partial class App : Application
             templateWorkspaceWindow.Show(mainWindow);
         };
         mainWindow.Opened += (_, _) => robotWindow.Show();
-        mainWindow.Closed += async (_, _) =>
-        {
-            // 即使用户先隐藏了宠物，也要关闭其窗口，让 Closed 统一保存最后位置与大小。
-            robotWindow.Close();
-            await viewModel.CancelVoiceInputForShutdownAsync();
-            _workspaceWindows.Remove(mainWindow);
-        };
+        mainWindow.Closed += (_, _) =>
+            _ = HandleWorkspaceClosedAsync(desktop, mainWindow, robotWindow, viewModel);
         _workspaceWindows.Add(mainWindow);
 
         if (showImmediately)
@@ -163,6 +163,58 @@ public partial class App : Application
         }
 
         return mainWindow;
+    }
+
+    private async Task HandleWorkspaceClosedAsync(
+        IClassicDesktopStyleApplicationLifetime desktop,
+        MainWindow mainWindow,
+        DesktopRobotWindow robotWindow,
+        MainWindowViewModel viewModel)
+    {
+        Interlocked.Increment(ref _workspaceCloseOperations);
+        _workspaceWindows.Remove(mainWindow);
+
+        if (ReferenceEquals(desktop.MainWindow, mainWindow))
+        {
+            var nextMainWindow = _workspaceWindows.FirstOrDefault();
+            if (nextMainWindow != null)
+            {
+                desktop.MainWindow = nextMainWindow;
+            }
+        }
+
+        try
+        {
+            // 即使用户先隐藏了宠物，也要关闭其窗口，让 Closed 统一保存最后位置与大小。
+            try
+            {
+                robotWindow.Close();
+            }
+            catch (Exception ex)
+            {
+                CrashDiagnosticService.ReportHandledException("关闭当前工作台宠物窗口", ex);
+            }
+
+            try
+            {
+                await viewModel.CancelVoiceInputForShutdownAsync().ConfigureAwait(true);
+            }
+            catch (Exception ex)
+            {
+                // 单个工作台清理失败不能终止其他仍在运行的工作台。
+                CrashDiagnosticService.ReportHandledException("清理当前工作台语音资源", ex);
+            }
+        }
+        finally
+        {
+            var pendingCloseOperations = Interlocked.Decrement(ref _workspaceCloseOperations);
+            if (WorkspaceLifetimePolicy.ShouldShutdown(
+                    _workspaceWindows.Count,
+                    pendingCloseOperations))
+            {
+                desktop.Shutdown();
+            }
+        }
     }
 
     private void DisableAvaloniaDataAnnotationValidation()

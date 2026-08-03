@@ -45,6 +45,9 @@ internal static class CrashDiagnosticService
             Append("Unobserved task", args.Exception);
     }
 
+    public static void ReportHandledException(string source, Exception exception) =>
+        Append(source, exception);
+
     private static void Append(string source, Exception exception)
     {
         try

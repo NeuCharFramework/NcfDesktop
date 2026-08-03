@@ -302,6 +302,7 @@ public partial class DesktopRobotWindow : Window
     {
         if (e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
         {
+            PromoteAboveOtherAlwaysOnTopWindows();
             Robot?.ReactToPointer();
             BeginMoveDrag(e);
         }
@@ -311,6 +312,20 @@ public partial class DesktopRobotWindow : Window
     {
         ExpandedCard.IsVisible = true;
         HideRobotButton.IsVisible = true;
+        PromoteAboveOtherAlwaysOnTopWindows();
+    }
+
+    private void PromoteAboveOtherAlwaysOnTopWindows()
+    {
+        if (!IsVisible)
+        {
+            return;
+        }
+
+        // 其他应用也可能创建 Topmost 桌面宠物。重新加入系统 Topmost 层可把当前展开的
+        // 信息卡提升到同级置顶窗口之上；不调用 Activate()，避免仅悬停就抢走键盘焦点。
+        Topmost = false;
+        Topmost = true;
     }
 
     private void RootSurface_OnPointerExited(object? sender, PointerEventArgs e)

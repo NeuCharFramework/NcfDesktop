@@ -53,6 +53,7 @@
         <!-- 默认隐藏的信息卡。宠物和状态位于其上方，形成从圆形入口探出的效果。 -->
         <Border x:Name="ExpandedCard"
                 IsVisible="False"
+                ZIndex="10"
                 Width="302"
                 Height="138"
                 Padding="76,40,12,12"
@@ -127,12 +128,14 @@
 
         <!-- 宠物与信息卡之间的透明悬停桥，避免移动鼠标时卡片提前收起。 -->
         <Border x:Name="HoverBridge"
+                ZIndex="15"
                 Width="30"
                 Height="54"
                 Background="#01000000"/>
 
         <!-- 状态始终紧贴宠物右侧，尺寸固定，不随信息卡或宠物缩放。 -->
         <Border x:Name="CompactStatus"
+                ZIndex="30"
                 Height="26"
                 MinHeight="0"
                 Padding="9,0"
@@ -149,6 +152,7 @@
 
         <Button x:Name="HideRobotButton"
                 IsVisible="False"
+                ZIndex="40"
                 Width="24"
                 Height="24"
                 Padding="0"
@@ -168,6 +172,7 @@
         </Button>
 
         <Grid x:Name="MascotSurface"
+              ZIndex="20"
               Width="112"
               Height="112"
               RenderTransformOrigin="0%,0%"

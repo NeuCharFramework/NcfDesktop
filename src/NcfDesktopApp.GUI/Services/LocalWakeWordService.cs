@@ -330,7 +330,7 @@ internal sealed class LocalWakeWordService : ILocalWakeWordService, IDisposable
             128 * 1024,
             FileOptions.Asynchronous | FileOptions.SequentialScan);
         var hash = await SHA256.HashDataAsync(stream, cancellationToken).ConfigureAwait(false);
-        var actualHash = Convert.ToHexStringLower(hash);
+        var actualHash = Convert.ToHexString(hash).ToLowerInvariant();
         if (!string.Equals(actualHash, WakeWordModelCatalog.ArchiveSha256, StringComparison.Ordinal))
         {
             throw new InvalidDataException(

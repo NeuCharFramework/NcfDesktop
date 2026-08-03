@@ -148,6 +148,7 @@ public partial class EmbeddedWebView : UserControl
                 }
                 catch (Exception ex)
                 {
+                    CrashDiagnosticService.ReportHandledException("WebView 初始化", ex);
                     UpdateStatus($"浏览器初始化失败: {ex.Message}", Brushes.Red);
                     ShowFallbackView();
                 }
@@ -155,6 +156,7 @@ public partial class EmbeddedWebView : UserControl
         }
         catch (Exception ex)
         {
+            CrashDiagnosticService.ReportHandledException("WebView 初始化调度", ex);
             Debug.WriteLine($"浏览器初始化异常: {ex.Message}");
             ShowFallbackView();
         }
