@@ -120,11 +120,20 @@ public partial class MainWindowViewModel
     {
         OnPropertyChanged(nameof(VoiceModelStatusColor));
         NotifyVoiceCommandsChanged();
+        ScheduleWakeWordListeningRefresh();
     }
 
-    partial void OnIsVoiceRecordingChanged(bool value) => NotifyVoiceStateChanged();
+    partial void OnIsVoiceRecordingChanged(bool value)
+    {
+        NotifyVoiceStateChanged();
+        ScheduleWakeWordListeningRefresh();
+    }
 
-    partial void OnIsVoiceTranscribingChanged(bool value) => NotifyVoiceStateChanged();
+    partial void OnIsVoiceTranscribingChanged(bool value)
+    {
+        NotifyVoiceStateChanged();
+        ScheduleWakeWordListeningRefresh();
+    }
 
     [RelayCommand(CanExecute = nameof(CanDownloadVoiceModel))]
     private async Task DownloadVoiceModel()
@@ -273,6 +282,12 @@ public partial class MainWindowViewModel
             return;
         }
 
+        await StartVoiceInputAsync(startedByWakeWord: false);
+    }
+
+    private async Task StartVoiceInputAsync(bool startedByWakeWord)
+    {
+
         var readiness = VoiceModelCatalog.Evaluate(SelectedVoiceModel, VoiceCustomModelPath);
         ApplyVoiceModelReadiness(readiness);
         if (!readiness.IsReady)
@@ -296,35 +311,48 @@ public partial class MainWindowViewModel
             return;
         }
 
-        _voiceRecognitionCts?.Cancel();
-        _voiceRecognitionCts?.Dispose();
-        _voiceRecognitionCts = new CancellationTokenSource();
+        _voiceInputStarting = true;
         try
         {
-            await _voiceInputService.StartRecordingAsync(
-                _voiceInputOwner,
-                readiness.ModelPath,
-                _voiceRecognitionCts.Token);
-            IsVoiceRecording = true;
-            VoiceInputStatusText = "正在录音；再次点击“停止”后将在本机识别。";
-            Robot.SetVoiceInputState("正在录音", "再次点击语音按钮即可停止并转写");
-        }
-        catch (OperationCanceledException)
-        {
-            VoiceInputStatusText = "语音输入已取消。";
-        }
-        catch (Exception ex)
-        {
-            VoiceInputStatusText = $"无法开始录音：{ex.Message}";
-            Robot.SetVoiceInputState("录音失败", ex.Message, isError: true);
-            AddLog($"❌ 无法开始语音输入: {ex.Message}");
+            await StopWakeWordListeningForOperationAsync().ConfigureAwait(true);
+            StopTtsPlayback();
+
+            _voiceRecognitionCts?.Cancel();
+            _voiceRecognitionCts?.Dispose();
+            _voiceRecognitionCts = new CancellationTokenSource();
+            try
+            {
+                await _voiceInputService.StartRecordingAsync(
+                    _voiceInputOwner,
+                    readiness.ModelPath,
+                    _voiceRecognitionCts.Token);
+                IsVoiceRecording = true;
+                VoiceInputStatusText = startedByWakeWord
+                    ? $"已由“{WakeWordModelCatalog.WakePhraseDisplay}”唤醒并开始录音；点击“停止”后在本机识别。"
+                    : "正在录音；再次点击“停止”后将在本机识别。";
+                Robot.SetVoiceInputState(
+                    "正在录音",
+                    startedByWakeWord ? "唤醒成功；点击语音按钮即可停止并转写" : "再次点击语音按钮即可停止并转写");
+            }
+            catch (OperationCanceledException)
+            {
+                VoiceInputStatusText = "语音输入已取消。";
+            }
+            catch (Exception ex)
+            {
+                VoiceInputStatusText = $"无法开始录音：{ex.Message}";
+                Robot.SetVoiceInputState("录音失败", ex.Message, isError: true);
+                AddLog($"❌ 无法开始语音输入: {ex.Message}");
+            }
         }
         finally
         {
+            _voiceInputStarting = false;
             if (!IsVoiceRecording)
             {
                 _voiceRecognitionCts?.Dispose();
                 _voiceRecognitionCts = null;
+                ScheduleWakeWordListeningRefresh();
             }
         }
     }
@@ -350,16 +378,25 @@ public partial class MainWindowViewModel
             IsVoiceRecording = false;
             VoiceInputStatusText = "语音输入已取消。";
             Robot.SetVoiceInputState("已取消", "语音内容未发送");
+            ScheduleWakeWordListeningRefresh();
         }
     }
 
     internal async Task CancelVoiceInputForShutdownAsync()
     {
+        await DisposeWakeWordServiceForWorkspaceAsync();
         _voiceModelDownloadCts?.Cancel();
         _voiceRecognitionCts?.Cancel();
-        if (_voiceInputService.RecordingOwner == _voiceInputOwner)
+        try
         {
-            await _voiceInputService.CancelRecordingAsync(_voiceInputOwner);
+            if (_voiceInputService.RecordingOwner == _voiceInputOwner)
+            {
+                await _voiceInputService.CancelRecordingAsync(_voiceInputOwner);
+            }
+        }
+        finally
+        {
+            DisposeAudioServicesForWorkspace();
         }
     }
 
@@ -403,6 +440,7 @@ public partial class MainWindowViewModel
             IsVoiceTranscribing = false;
             _voiceRecognitionCts?.Dispose();
             _voiceRecognitionCts = null;
+            ScheduleWakeWordListeningRefresh();
         }
     }
 
@@ -422,6 +460,7 @@ public partial class MainWindowViewModel
         OnPropertyChanged(nameof(IsVoiceInputBusy));
         OnPropertyChanged(nameof(IsVoiceCancelVisible));
         NotifyVoiceCommandsChanged();
+        DownloadWakeWordModelCommand.NotifyCanExecuteChanged();
     }
 
     private void NotifyVoiceCommandsChanged()

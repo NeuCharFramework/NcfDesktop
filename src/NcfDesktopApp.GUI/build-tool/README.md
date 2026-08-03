@@ -75,6 +75,18 @@
 ./build-tool/build-all-platforms-self-contained.sh -p osx-arm64 && ./build-tool/build-all-platforms-self-contained.sh -p osx-x64 && ./build-tool/create-macos-app.sh --create-dmg --clean
 ```
 
+### 只生成 osx-arm64 可直接执行版本：
+
+```bash
+./build-tool/build-all-platforms-self-contained.sh --clean --single-file -p osx-arm64
+./build-tool/create-macos-app.sh --clean --create-dmg 
+```
+
+### 只生成 osx-x64 可直接执行版本：
+
+```bash
+./build-tool/build-all-platforms-self-contained.sh -p osx-x64
+```
 ### 自包含发布脚本系列（推荐在目标机器未安装 .NET 运行时时使用）
 
 - Bash: `build-tool/build-all-platforms-self-contained.sh`

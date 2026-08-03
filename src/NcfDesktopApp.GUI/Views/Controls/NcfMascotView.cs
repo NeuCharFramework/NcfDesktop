@@ -23,6 +23,14 @@ public sealed class NcfMascotView : Control
         AvaloniaProperty.Register<NcfMascotView, double>(nameof(GazeY));
     public static readonly StyledProperty<bool> IsInteractingProperty =
         AvaloniaProperty.Register<NcfMascotView, bool>(nameof(IsInteracting));
+    public static readonly StyledProperty<AudioVisualizationMode> AudioModeProperty =
+        AvaloniaProperty.Register<NcfMascotView, AudioVisualizationMode>(nameof(AudioMode));
+    public static readonly StyledProperty<double> AudioLevelProperty =
+        AvaloniaProperty.Register<NcfMascotView, double>(nameof(AudioLevel));
+    public static readonly StyledProperty<double[]> AudioBandsProperty =
+        AvaloniaProperty.Register<NcfMascotView, double[]>(nameof(AudioBands), new double[12]);
+    public static readonly StyledProperty<bool> ShowAudioAuraProperty =
+        AvaloniaProperty.Register<NcfMascotView, bool>(nameof(ShowAudioAura), true);
 
     private readonly DispatcherTimer _timer;
     private double _phase;
@@ -33,7 +41,11 @@ public sealed class NcfMascotView : Control
         ShowGlassesProperty,
         GazeXProperty,
         GazeYProperty,
-        IsInteractingProperty);
+        IsInteractingProperty,
+        AudioModeProperty,
+        AudioLevelProperty,
+        AudioBandsProperty,
+        ShowAudioAuraProperty);
 
     public NcfMascotView()
     {
@@ -42,6 +54,13 @@ public sealed class NcfMascotView : Control
         _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(80) };
         _timer.Tick += (_, _) =>
         {
+            // AdminChat 的不可用、登录和聊天三个角色都保留在视觉树中但互斥显示。
+            // 只让当前真正可见的角色进入重绘，避免隐藏页面消耗渲染资源。
+            if (!IsEffectivelyVisible)
+            {
+                return;
+            }
+
             _phase = (_phase + .16) % (Math.PI * 2);
             InvalidateVisual();
         };
@@ -85,6 +104,30 @@ public sealed class NcfMascotView : Control
         set => SetValue(IsInteractingProperty, value);
     }
 
+    public AudioVisualizationMode AudioMode
+    {
+        get => GetValue(AudioModeProperty);
+        set => SetValue(AudioModeProperty, value);
+    }
+
+    public double AudioLevel
+    {
+        get => GetValue(AudioLevelProperty);
+        set => SetValue(AudioLevelProperty, value);
+    }
+
+    public double[] AudioBands
+    {
+        get => GetValue(AudioBandsProperty);
+        set => SetValue(AudioBandsProperty, value);
+    }
+
+    public bool ShowAudioAura
+    {
+        get => GetValue(ShowAudioAuraProperty);
+        set => SetValue(ShowAudioAuraProperty, value);
+    }
+
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
     {
         base.OnAttachedToVisualTree(e);
@@ -114,6 +157,7 @@ public sealed class NcfMascotView : Control
         var colors = MascotColors.For(Mascot);
         var outline = new Pen(colors.Outline, Math.Max(1.1, 1.65 * scale));
 
+        DrawAudioAura(context, new Point(Bounds.Width / 2, Bounds.Height / 2), side);
         DrawRoleBackground(context, center, scale, colors);
         context.DrawEllipse(Brush(34, 15, 23, 42), null,
             new Point(center.X, center.Y + 91 * scale),
@@ -122,6 +166,64 @@ public sealed class NcfMascotView : Control
         DrawBody(context, center, scale, colors, outline);
         DrawHead(context, center, scale, colors, outline, motion);
         DrawRoleDetail(context, center, scale, colors, outline, motion);
+    }
+
+    private void DrawAudioAura(DrawingContext context, Point center, double side)
+    {
+        if (!ShowAudioAura || AudioMode == AudioVisualizationMode.None)
+        {
+            return;
+        }
+
+        var level = Math.Clamp(AudioLevel, 0, 1);
+        var bands = AudioBands ?? Array.Empty<double>();
+        var isSpeaking = AudioMode == AudioVisualizationMode.Speaking;
+        var primary = isSpeaking ? Color.Parse("#8B5CF6") : Color.Parse("#06B6D4");
+        var secondary = isSpeaking ? Color.Parse("#22D3EE") : Color.Parse("#38BDF8");
+        var pulse = (Math.Sin(_phase * 2.4) + 1) * .5;
+        var baseRadius = side * (.34 + level * .025);
+        var outerRadius = Math.Min(side * .485, baseRadius + side * (.055 + level * .05));
+
+        context.DrawEllipse(
+            null,
+            new Pen(Brush((byte)(70 + level * 95), primary.R, primary.G, primary.B), Math.Max(1, side * .018)),
+            center,
+            baseRadius,
+            baseRadius);
+        context.DrawEllipse(
+            null,
+            new Pen(Brush((byte)(35 + level * 80), secondary.R, secondary.G, secondary.B), Math.Max(.8, side * .012)),
+            center,
+            outerRadius - pulse * side * .012,
+            outerRadius - pulse * side * .012);
+
+        var segmentCount = Math.Max(12, bands.Length);
+        for (var index = 0; index < segmentCount; index++)
+        {
+            var band = bands.Length == 0 ? 0 : Math.Clamp(bands[index % bands.Length], 0, 1);
+            var angle = -Math.PI / 2 + Math.PI * 2 * index / segmentCount;
+            var inner = baseRadius + side * .012;
+            var length = side * (.025 + band * (isSpeaking ? .09 : .065));
+            var start = new Point(center.X + Math.Cos(angle) * inner, center.Y + Math.Sin(angle) * inner);
+            var end = new Point(center.X + Math.Cos(angle) * Math.Min(outerRadius, inner + length),
+                center.Y + Math.Sin(angle) * Math.Min(outerRadius, inner + length));
+            context.DrawLine(
+                new Pen(Brush((byte)(75 + band * 165), secondary.R, secondary.G, secondary.B), Math.Max(1, side * .017)),
+                start,
+                end);
+        }
+
+        if (isSpeaking)
+        {
+            for (var node = 0; node < 4; node++)
+            {
+                var angle = _phase * .35 + node * Math.PI / 2;
+                var radius = outerRadius - side * .006;
+                var point = new Point(center.X + Math.Cos(angle) * radius, center.Y + Math.Sin(angle) * radius);
+                context.DrawEllipse(Brush(210, secondary.R, secondary.G, secondary.B), null,
+                    point, Math.Max(1.2, side * .022), Math.Max(1.2, side * .022));
+            }
+        }
     }
 
     private Motion GetMotion()

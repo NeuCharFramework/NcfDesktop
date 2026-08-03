@@ -79,9 +79,9 @@
         </Style>
     </Window.Styles>
 
-    <Grid>
+    <Grid ClipToBounds="True">
         <!-- 标签栏独占一行，内容区 * 获得明确剩余高度，避免子控件在「无限高」测量下无法滚动、底部被裁切 -->
-        <Grid RowDefinitions="Auto,*" ZIndex="1">
+        <Grid RowDefinitions="Auto,*" ZIndex="1" ClipToBounds="True">
             <StackPanel Grid.Row="0"
                        Orientation="Horizontal"
                        Background="{DynamicResource CardBackgroundBrush}"
@@ -108,7 +108,10 @@
                        Classes="tab-button browser-tab"/>
             </StackPanel>
 
-            <Grid Grid.Row="1" VerticalAlignment="Stretch">
+            <Grid Grid.Row="1"
+                  VerticalAlignment="Stretch"
+                  MinHeight="0"
+                  ClipToBounds="True">
                 <views:SettingsView DataContext="{Binding}"
                                    IsVisible="{Binding IsSettingsTabActive}"
                                    VerticalAlignment="Stretch"/>

@@ -82,4 +82,34 @@ public sealed class DesktopUserSettings
     /// 语音识别语言：auto、zh 或 en。
     /// </summary>
     public string VoiceLanguage { get; set; } = "auto";
+
+    /// <summary>
+    /// 是否启用固定唤醒词监听。默认关闭，避免升级后在用户不知情时常驻麦克风。
+    /// </summary>
+    public bool WakeWordEnabled { get; set; }
+
+    /// <summary>
+    /// 已选择的本地文本转语音模型标识。空值表示用户尚未选择。
+    /// </summary>
+    public string TtsModelId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 手动加载的 sherpa-onnx Kokoro 模型目录；内置可下载模型不使用此字段。
+    /// </summary>
+    public string TtsCustomModelPath { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Kokoro 音色编号。
+    /// </summary>
+    public int TtsSpeakerId { get; set; } = 45;
+
+    /// <summary>
+    /// 文本转语音语速倍率。
+    /// </summary>
+    public double TtsSpeed { get; set; } = 1.0;
+
+    /// <summary>
+    /// AdminChat 回复完成后是否自动朗读。默认关闭，避免意外播放声音。
+    /// </summary>
+    public bool TtsAutoRead { get; set; }
 }

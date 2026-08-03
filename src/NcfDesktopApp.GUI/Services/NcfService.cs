@@ -428,16 +428,15 @@ public class NcfService
         if (release.Assets == null) return null;
         
         var platform = GetCurrentPlatform();
-        
-        foreach (var asset in release.Assets)
-        {
-            if (asset.Name?.Contains(platform, StringComparison.OrdinalIgnoreCase) == true)
-            {
-                return asset;
-            }
-        }
-        
-        return null;
+        var expectedPrefix = $"ncf-{platform}-";
+        var matches = release.Assets
+            .Where(asset =>
+                asset.Name?.StartsWith(expectedPrefix, StringComparison.OrdinalIgnoreCase) == true &&
+                asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+
+        // 必须唯一命中 NCF Host 运行时包。ncf-desktop-* 即使 RID 相同也不能用于提取 Senparc.Web.dll。
+        return matches.Length == 1 ? matches[0] : null;
     }
     
     public Task<bool> CheckIfDownloadNeededAsync(string fileName, long expectedSize)
@@ -782,30 +781,66 @@ public class NcfService
     public async Task ExtractZipAsync(string zipFileName, string version, IProgress<double>? progress = null, CancellationToken cancellationToken = default)
     {
         var zipPath = Path.Combine(DownloadsPath, zipFileName);
+        var runtimeParent = Path.GetDirectoryName(NcfRuntimePath) ?? AppDataPath;
+        var stagingPath = Path.Combine(runtimeParent, $"Runtime.staging-{Guid.NewGuid():N}");
         
         _logger?.LogInformation("开始提取文件...");
-        
-        // 🎯 新增：保护重要文件和文件夹
-        await PreserveImportantFilesAsync();
-        
-        // 清理旧文件（但保留重要文件）
-        await SafeCleanRuntimeDirectoryAsync();
-        
-        await ExtractZipWithCorrectPathsAsync(zipPath, NcfRuntimePath, progress, cancellationToken);
-        
-        // 🎯 新增：恢复保护的文件
-        await RestoreImportantFilesAsync();
-        
-        // 🎯 新增：macOS 解压后自动处理
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+        Directory.CreateDirectory(stagingPath);
+        try
         {
-            await PostProcessMacOSExecutablesAsync();
+            // 先在隔离目录解压并验证入口 DLL，错误的 GUI ZIP 不得触碰当前可用 Runtime。
+            await ExtractZipWithCorrectPathsAsync(zipPath, stagingPath, progress, cancellationToken);
+            ValidateExtractedRuntimePackage(stagingPath);
+
+            // 🎯 保护重要文件和文件夹
+            await PreserveImportantFilesAsync();
+
+            // 清理旧文件（但保留重要文件）
+            await SafeCleanRuntimeDirectoryAsync();
+            await CopyDirectoryAsync(stagingPath, NcfRuntimePath);
+
+            // 🎯 恢复保护的文件
+            await RestoreImportantFilesAsync();
+
+            // 🎯 macOS 解压后自动处理
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+            {
+                await PostProcessMacOSExecutablesAsync();
+            }
+
+            // 仅在新运行时通过 DLL 校验并复制完成后保存版本信息。
+            ValidateExtractedRuntimePackage(NcfRuntimePath);
+            await SaveVersionAsync(version);
+
+            _logger?.LogInformation("文件提取完成");
         }
-        
-        // 保存版本信息
-        await SaveVersionAsync(version);
-        
-        _logger?.LogInformation("文件提取完成");
+        finally
+        {
+            if (Directory.Exists(stagingPath))
+            {
+                try
+                {
+                    Directory.Delete(stagingPath, recursive: true);
+                }
+                catch (Exception ex)
+                {
+                    _logger?.LogWarning(ex, "清理运行时暂存目录失败: {StagingPath}", stagingPath);
+                }
+            }
+        }
+    }
+
+    internal static void ValidateExtractedRuntimePackage(string extractPath)
+    {
+        var entryDlls = Directory.Exists(extractPath)
+            ? Directory.GetFiles(extractPath, "Senparc.Web.dll", SearchOption.AllDirectories)
+            : [];
+
+        if (entryDlls.Length != 1)
+        {
+            throw new InvalidDataException(
+                $"NCF Host 运行时包必须包含且仅包含一个 Senparc.Web.dll，实际为 {entryDlls.Length} 个。");
+        }
     }
     
     public async Task<int> FindAvailablePortAsync(int startPort = 5001, int endPort = 5300)
@@ -1956,11 +1991,11 @@ public class NcfService
         using var archive = ZipFile.OpenRead(zipPath);
         var totalEntries = archive.Entries.Count;
         var processedEntries = 0;
+        var normalizedExtractPath = Path.GetFullPath(extractPath) + Path.DirectorySeparatorChar;
         
         foreach (var entry in archive.Entries)
         {
-            if (cancellationToken.IsCancellationRequested)
-                break;
+            cancellationToken.ThrowIfCancellationRequested();
             
             if (string.IsNullOrEmpty(entry.Name))
             {
@@ -1969,7 +2004,11 @@ public class NcfService
             }
             
             var relativePath = entry.FullName.Replace('\\', Path.DirectorySeparatorChar);
-            var fullPath = Path.Combine(extractPath, relativePath);
+            var fullPath = Path.GetFullPath(Path.Combine(extractPath, relativePath));
+            if (!fullPath.StartsWith(normalizedExtractPath, StringComparison.Ordinal))
+            {
+                throw new InvalidDataException($"ZIP 包含越界路径：{entry.FullName}");
+            }
             
             var directoryPath = Path.GetDirectoryName(fullPath);
             if (!string.IsNullOrEmpty(directoryPath))

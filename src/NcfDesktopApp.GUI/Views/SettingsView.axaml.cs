@@ -3,6 +3,8 @@ using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
+using NcfDesktopApp.GUI.Models;
+using NcfDesktopApp.GUI.Services;
 using NcfDesktopApp.GUI.ViewModels;
 using System;
 using System.Collections.Specialized;
@@ -13,6 +15,7 @@ public partial class SettingsView : UserControl
 {
     private bool _isUserScrolling = false;
     private bool _isChatUserScrolling;
+    private bool _isChatScrollScheduled;
     private INotifyCollectionChanged? _chatMessages;
     
     public SettingsView()
@@ -51,18 +54,30 @@ public partial class SettingsView : UserControl
             return;
         }
 
-        var scrollableHeight = Math.Max(0, scrollViewer.Extent.Height - scrollViewer.Viewport.Height);
-        var distanceFromBottom = Math.Max(0, scrollableHeight - scrollViewer.Offset.Y);
-        if (e.ExtentDelta.Y == 0 && e.OffsetDelta.Y != 0)
+        var layoutChanged = e.ExtentDelta.Y != 0 || e.ViewportDelta.Y != 0;
+        var isNearBottom = ScrollPositionPolicy.IsNearBottom(
+            scrollViewer.Extent.Height,
+            scrollViewer.Viewport.Height,
+            scrollViewer.Offset.Y);
+
+        if (!layoutChanged && e.OffsetDelta.Y != 0)
         {
-            _isChatUserScrolling = distanceFromBottom > 24;
+            _isChatUserScrolling = !isNearBottom;
         }
-        else if (distanceFromBottom <= 24)
+        else if (isNearBottom)
         {
             _isChatUserScrolling = false;
         }
 
-        if (e.ExtentDelta.Y != 0 && !_isChatUserScrolling)
+        if (layoutChanged &&
+            !_isChatUserScrolling &&
+            ScrollPositionPolicy.WasNearBottom(
+                scrollViewer.Extent.Height,
+                scrollViewer.Viewport.Height,
+                scrollViewer.Offset.Y,
+                e.ExtentDelta.Y,
+                e.ViewportDelta.Y,
+                e.OffsetDelta.Y))
         {
             ScheduleChatScrollToEnd();
         }
@@ -70,13 +85,26 @@ public partial class SettingsView : UserControl
 
     private void ScheduleChatScrollToEnd()
     {
+        if (_isChatScrollScheduled)
+        {
+            return;
+        }
+
+        _isChatScrollScheduled = true;
         Dispatcher.UIThread.Post(() =>
         {
             Dispatcher.UIThread.Post(() =>
             {
-                if (!_isChatUserScrolling && ChatScrollViewer.Extent.Height > ChatScrollViewer.Viewport.Height)
+                try
                 {
-                    ChatScrollViewer.ScrollToEnd();
+                    if (!_isChatUserScrolling)
+                    {
+                        ChatScrollViewer.ScrollToEnd();
+                    }
+                }
+                finally
+                {
+                    _isChatScrollScheduled = false;
                 }
             }, DispatcherPriority.Render);
         }, DispatcherPriority.Background);
@@ -95,6 +123,27 @@ public partial class SettingsView : UserControl
         e.Handled = true;
         viewModel.SendAdminChatMessageCommand.Execute(null);
     }
+
+    private async void AdminChatSpeechButton_OnClick(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { DataContext: AdminChatMessage message } ||
+            DataContext is not MainWindowViewModel viewModel ||
+            !viewModel.ToggleAdminChatSpeechCommand.CanExecute(message))
+        {
+            return;
+        }
+
+        try
+        {
+            // DataTemplate 在登录后才实例化。这里直接从 SettingsView 取 ViewModel，
+            // 避免运行时使用 $parent 跨模板解析命令导致平台相关的绑定异常。
+            await viewModel.ToggleAdminChatSpeechCommand.ExecuteAsync(message);
+        }
+        catch (Exception ex)
+        {
+            viewModel.TtsPlaybackStatusText = $"朗读失败：{ex.Message}";
+        }
+    }
     
     /// <summary>
     /// 当滚动条位置改变时触发
@@ -105,18 +154,32 @@ public partial class SettingsView : UserControl
         
         try
         {
-            // 检查用户是否手动滚动（不是在底部）
-            var scrollableHeight = scrollViewer.Extent.Height - scrollViewer.Viewport.Height;
-            if (scrollableHeight > 0)
+            var layoutChanged = e.ExtentDelta.Y != 0 || e.ViewportDelta.Y != 0;
+            var isNearBottom = ScrollPositionPolicy.IsNearBottom(
+                scrollViewer.Extent.Height,
+                scrollViewer.Viewport.Height,
+                scrollViewer.Offset.Y);
+
+            if (!layoutChanged && e.OffsetDelta.Y != 0)
             {
-                var distanceFromBottom = scrollableHeight - scrollViewer.Offset.Y;
-                
-                // 如果距离底部超过 20 像素，说明用户在查看历史日志
-                _isUserScrolling = distanceFromBottom > 20;
+                _isUserScrolling = !isNearBottom;
             }
-            else
+            else if (isNearBottom)
             {
                 _isUserScrolling = false;
+            }
+
+            if (layoutChanged &&
+                !_isUserScrolling &&
+                ScrollPositionPolicy.WasNearBottom(
+                    scrollViewer.Extent.Height,
+                    scrollViewer.Viewport.Height,
+                    scrollViewer.Offset.Y,
+                    e.ExtentDelta.Y,
+                    e.ViewportDelta.Y,
+                    e.OffsetDelta.Y))
+            {
+                Dispatcher.UIThread.Post(scrollViewer.ScrollToEnd, DispatcherPriority.Render);
             }
         }
         catch

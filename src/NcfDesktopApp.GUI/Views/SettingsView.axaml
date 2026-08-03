@@ -12,7 +12,10 @@
              HorizontalAlignment="Stretch"
              VerticalAlignment="Stretch">
 
-    <Grid RowDefinitions="Auto,*" VerticalAlignment="Stretch" MinHeight="0">
+    <Grid RowDefinitions="Auto,*"
+          VerticalAlignment="Stretch"
+          MinHeight="0"
+          ClipToBounds="True">
         <!-- Agent 工作台标题栏 -->
         <Border Grid.Row="0"
                 Background="{DynamicResource ToolbarBackgroundBrush}"
@@ -60,15 +63,21 @@
             </Grid>
         </Border>
 
-        <Grid Grid.Row="1" ColumnDefinitions="430,*" VerticalAlignment="Stretch" MinHeight="0">
+        <Grid Grid.Row="1"
+              ColumnDefinitions="430,*"
+              VerticalAlignment="Stretch"
+              MinHeight="0"
+              ClipToBounds="True">
             <!-- 左侧：目标与运行控制 -->
             <ScrollViewer Grid.Column="0"
-                          Padding="16,14,8,16"
                           VerticalAlignment="Stretch"
                           HorizontalAlignment="Stretch"
+                          MinHeight="0"
+                          ClipToBounds="True"
                           VerticalScrollBarVisibility="Auto"
                           HorizontalScrollBarVisibility="Disabled">
-                <StackPanel Spacing="10" Margin="0,0,0,2">
+                <Border Padding="16,14,8,18">
+                    <StackPanel Spacing="10">
                     <!-- 启动目标卡片 -->
                     <Border Classes="card target-card">
                         <StackPanel Spacing="11">
@@ -322,7 +331,8 @@
                         </StackPanel>
                     </Border>
 
-                </StackPanel>
+                    </StackPanel>
+                </Border>
             </ScrollViewer>
 
             <!-- 右侧：Agent 运行流 -->
@@ -330,8 +340,12 @@
                     Classes="activity-panel"
                     Margin="8,14,16,16"
                     VerticalAlignment="Stretch"
-                    MinHeight="0">
-                <Grid RowDefinitions="Auto,*,Auto,150">
+                    MinHeight="0"
+                    ClipToBounds="True">
+                <!-- Chat 与日志都使用星号行，窗口缩小时按比例收缩，不再让固定日志高度把 Chat 挤出可视区。 -->
+                <Grid RowDefinitions="Auto,3*,Auto,*"
+                      MinHeight="0"
+                      ClipToBounds="True">
                     <Border Grid.Row="0"
                             Background="{DynamicResource ToolbarBackgroundBrush}"
                             BorderBrush="{DynamicResource CardBorderBrush}"
@@ -351,57 +365,79 @@
                     </Border>
 
                     <!-- 快捷聊天主体 -->
-                    <Grid Grid.Row="1" MinHeight="0" Background="{DynamicResource CardBackgroundBrush}">
-                        <StackPanel IsVisible="{Binding IsAdminChatUnavailable}"
-                                    HorizontalAlignment="Center"
-                                    VerticalAlignment="Center"
-                                    MaxWidth="360"
-                                    Spacing="10"
-                                    Margin="24">
-                            <controls:NcfMascotView Mascot="Qiao" Pose="Warning"
-                                                    Width="72" Height="72"/>
-                            <TextBlock Text="快捷聊天尚未启用" FontSize="15" FontWeight="SemiBold"
-                                       HorizontalAlignment="Center"/>
-                            <TextBlock Text="{Binding AdminChatDisabledReason}"
-                                       FontSize="11" TextWrapping="Wrap" TextAlignment="Center"
-                                       Foreground="{DynamicResource SecondaryTextBrush}"/>
-                        </StackPanel>
+                    <Grid Grid.Row="1"
+                          MinHeight="0"
+                          ClipToBounds="True"
+                          Background="{DynamicResource CardBackgroundBrush}">
+                        <ScrollViewer IsVisible="{Binding IsAdminChatUnavailable}"
+                                      MinHeight="0"
+                                      ClipToBounds="True"
+                                      AllowAutoHide="False"
+                                      VerticalContentAlignment="Center"
+                                      VerticalScrollBarVisibility="Auto"
+                                      HorizontalScrollBarVisibility="Disabled">
+                            <Border Padding="24">
+                                <StackPanel HorizontalAlignment="Center"
+                                            MaxWidth="360"
+                                            Spacing="10">
+                                    <controls:NcfMascotView Mascot="Qiao" Pose="Warning"
+                                                            Width="72" Height="72"/>
+                                    <TextBlock Text="快捷聊天尚未启用" FontSize="15" FontWeight="SemiBold"
+                                               HorizontalAlignment="Center"/>
+                                    <TextBlock Text="{Binding AdminChatDisabledReason}"
+                                               FontSize="11" TextWrapping="Wrap" TextAlignment="Center"
+                                               Foreground="{DynamicResource SecondaryTextBrush}"/>
+                                </StackPanel>
+                            </Border>
+                        </ScrollViewer>
 
-                        <StackPanel IsVisible="{Binding IsAdminLoginVisible}"
-                                    HorizontalAlignment="Center"
-                                    VerticalAlignment="Center"
-                                    Width="350"
-                                    Spacing="9"
-                                    Margin="24">
-                            <controls:NcfMascotView Mascot="Cici" Pose="Wave"
-                                                    Width="76" Height="76"
-                                                    HorizontalAlignment="Center"/>
-                            <TextBlock Text="管理员登录" FontSize="16" FontWeight="SemiBold"/>
-                            <TextBlock Text="仅 AdminOnly 账号可使用；密码和 JWT 不会写入本地设置。"
-                                       FontSize="10.5" TextWrapping="Wrap"
-                                       Foreground="{DynamicResource SecondaryTextBrush}"/>
-                            <TextBox Text="{Binding AdminUserName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                     Watermark="后台管理员账号"/>
-                            <TextBox Text="{Binding AdminPassword, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                     PasswordChar="●" Watermark="密码"/>
-                            <Button Content="验证并连接"
-                                    Command="{Binding AdminLoginCommand}"
-                                    Classes="primary-action"
-                                    HorizontalAlignment="Stretch"
-                                    HorizontalContentAlignment="Center"
-                                    Background="#7C3AED" Foreground="White"/>
-                            <TextBlock Text="{Binding AdminChatStatusText}" FontSize="10.5"
-                                       TextWrapping="Wrap" Foreground="{DynamicResource SecondaryTextBrush}"/>
-                        </StackPanel>
+                        <ScrollViewer IsVisible="{Binding IsAdminLoginVisible}"
+                                      MinHeight="0"
+                                      ClipToBounds="True"
+                                      AllowAutoHide="False"
+                                      VerticalContentAlignment="Center"
+                                      VerticalScrollBarVisibility="Auto"
+                                      HorizontalScrollBarVisibility="Disabled">
+                            <Border Padding="24">
+                                <StackPanel HorizontalAlignment="Center"
+                                            Width="350"
+                                            Spacing="9">
+                                    <controls:NcfMascotView Mascot="Cici" Pose="Wave"
+                                                            Width="76" Height="76"
+                                                            HorizontalAlignment="Center"/>
+                                    <TextBlock Text="管理员登录" FontSize="16" FontWeight="SemiBold"/>
+                                    <TextBlock Text="仅 AdminOnly 账号可使用；密码和 JWT 不会写入本地设置。"
+                                               FontSize="10.5" TextWrapping="Wrap"
+                                               Foreground="{DynamicResource SecondaryTextBrush}"/>
+                                    <TextBox Text="{Binding AdminUserName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                             Watermark="后台管理员账号"/>
+                                    <TextBox Text="{Binding AdminPassword, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                             PasswordChar="●" Watermark="密码"/>
+                                    <Button Content="验证并连接"
+                                            Command="{Binding AdminLoginCommand}"
+                                            Classes="primary-action"
+                                            HorizontalAlignment="Stretch"
+                                            HorizontalContentAlignment="Center"
+                                            Background="#7C3AED" Foreground="White"/>
+                                    <TextBlock Text="{Binding AdminChatStatusText}" FontSize="10.5"
+                                               TextWrapping="Wrap" Foreground="{DynamicResource SecondaryTextBrush}"/>
+                                </StackPanel>
+                            </Border>
+                        </ScrollViewer>
 
                         <Grid IsVisible="{Binding IsAdminChatActive}"
-                              RowDefinitions="Auto,*,Auto" MinHeight="0">
+                              RowDefinitions="Auto,*,Auto"
+                              MinHeight="0"
+                              ClipToBounds="True">
                             <Border Grid.Row="0" BorderBrush="{DynamicResource CardBorderBrush}"
                                     BorderThickness="0,0,0,1" Padding="12,9">
                                 <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="7">
                                     <controls:NcfMascotView Grid.Column="0"
                                                             Mascot="Cici"
                                                             Pose="{Binding AdminChatMascotPose}"
+                                                            AudioMode="{Binding AudioVisualizationMode}"
+                                                            AudioLevel="{Binding AudioVisualizationLevel}"
+                                                            AudioBands="{Binding AudioVisualizationBands}"
                                                             Width="34" Height="34"/>
                                     <ComboBox Grid.Column="1"
                                               ItemsSource="{Binding AdminChatSessions}"
@@ -419,38 +455,52 @@
                             </Border>
 
                             <ScrollViewer x:Name="ChatScrollViewer"
-                                          Grid.Row="1" Padding="14,10,14,26"
+                                          Grid.Row="1"
+                                          MinHeight="0"
+                                          ClipToBounds="True"
+                                          AllowAutoHide="False"
                                           VerticalScrollBarVisibility="Auto"
                                           HorizontalScrollBarVisibility="Disabled"
                                           ScrollChanged="ChatScrollViewer_OnScrollChanged">
-                                <ItemsControl ItemsSource="{Binding AdminChatMessages}">
-                                    <ItemsControl.ItemTemplate>
-                                        <DataTemplate x:DataType="models:AdminChatMessage">
-                                            <Border Background="#0A64748B" CornerRadius="8"
-                                                    Padding="10,8" Margin="0,0,0,8">
-                                                <StackPanel Spacing="4">
-                                                    <Grid ColumnDefinitions="*,Auto">
-                                                        <TextBlock Grid.Column="0" Text="{Binding SenderName}"
-                                                                   Foreground="{Binding SenderColor}"
-                                                                   FontWeight="SemiBold" FontSize="10.5"/>
-                                                        <TextBlock Grid.Column="1" Text="{Binding DisplayTime}"
-                                                                   FontSize="9.5"
-                                                                   Foreground="{DynamicResource SecondaryTextBrush}"/>
-                                                    </Grid>
-                                                    <SelectableTextBlock Text="{Binding Content}"
-                                                                         TextWrapping="Wrap"
-                                                                         FontSize="11.5"
-                                                                         LineHeight="18"/>
-                                                </StackPanel>
-                                            </Border>
-                                        </DataTemplate>
-                                    </ItemsControl.ItemTemplate>
-                                </ItemsControl>
+                                <!-- 留白属于滚动内容的 Extent，滚到底时最后一条消息一定能完整露出。 -->
+                                <Border Padding="14,10,14,18">
+                                    <ItemsControl ItemsSource="{Binding AdminChatMessages}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate x:DataType="models:AdminChatMessage">
+                                                <Border Background="#0A64748B" CornerRadius="8"
+                                                        Padding="10,8" Margin="0,0,0,8">
+                                                    <StackPanel Spacing="4">
+                                                        <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="7">
+                                                            <TextBlock Grid.Column="0" Text="{Binding SenderName}"
+                                                                       Foreground="{Binding SenderColor}"
+                                                                       FontWeight="SemiBold" FontSize="10.5"/>
+                                                            <TextBlock Grid.Column="1" Text="{Binding DisplayTime}"
+                                                                       FontSize="9.5"
+                                                                       Foreground="{DynamicResource SecondaryTextBrush}"/>
+                                                            <Button Grid.Column="2"
+                                                                    Content="🔊"
+                                                                    Click="AdminChatSpeechButton_OnClick"
+                                                                    IsVisible="{Binding IsAgent}"
+                                                                    Padding="5,1"
+                                                                    FontSize="10"
+                                                                    Classes="secondary-action"
+                                                                    ToolTip.Tip="朗读此条 AI 回复；再次点击可停止"/>
+                                                        </Grid>
+                                                        <SelectableTextBlock Text="{Binding Content}"
+                                                                             TextWrapping="Wrap"
+                                                                             FontSize="11.5"
+                                                                             LineHeight="18"/>
+                                                    </StackPanel>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </Border>
                             </ScrollViewer>
 
                             <Border Grid.Row="2" BorderBrush="{DynamicResource CardBorderBrush}"
                                     BorderThickness="0,1,0,0" Padding="12,9">
-                                <Grid ColumnDefinitions="Auto,*,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="8" RowSpacing="5">
+                                <Grid ColumnDefinitions="Auto,*,Auto" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="8" RowSpacing="5">
                                     <Button Grid.Row="0" Grid.Column="0"
                                             Content="{Binding VoiceInputButtonIcon}"
                                             Command="{Binding ToggleVoiceInputCommand}"
@@ -470,13 +520,30 @@
                                             Classes="primary-action"
                                             Background="#2563EB" Foreground="White"
                                             VerticalAlignment="Stretch"/>
-                                    <TextBlock Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2"
-                                               Text="{Binding VoiceInputStatusText}"
+                                    <controls:AudioSpectrumView Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2"
+                                                                Mode="{Binding AudioVisualizationMode}"
+                                                                Level="{Binding AudioVisualizationLevel}"
+                                                                Bands="{Binding AudioVisualizationBands}"
+                                                                IsVisible="{Binding IsAudioVisualizationActive}"
+                                                                Height="34"/>
+                                    <Button Grid.Row="1" Grid.Column="2"
+                                            Content="停止朗读"
+                                            Command="{Binding CancelTtsOperationCommand}"
+                                            IsVisible="{Binding IsTtsPlaying}"
+                                            Classes="secondary-action"
+                                            FontSize="9.5"
+                                            Padding="8,3"/>
+                                    <TextBlock Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2"
+                                               Text="{Binding AdminChatAudioStatusText}"
                                                FontSize="9.5"
                                                Foreground="{DynamicResource SecondaryTextBrush}"
                                                TextWrapping="Wrap"
+                                               TextTrimming="CharacterEllipsis"
+                                               MaxHeight="32"
+                                               ClipToBounds="True"
+                                               ToolTip.Tip="{Binding AdminChatAudioStatusText}"
                                                VerticalAlignment="Center"/>
-                                    <Button Grid.Row="1" Grid.Column="2"
+                                    <Button Grid.Row="2" Grid.Column="2"
                                             Content="取消语音"
                                             Command="{Binding CancelVoiceInputCommand}"
                                             IsVisible="{Binding IsVoiceCancelVisible}"
@@ -502,21 +569,27 @@
                         </Grid>
                     </Border>
 
-                    <Border Grid.Row="3" Background="{DynamicResource LogBackgroundBrush}">
+                    <Border Grid.Row="3"
+                            MinHeight="0"
+                            ClipToBounds="True"
+                            Background="{DynamicResource LogBackgroundBrush}">
                         <ScrollViewer Name="LogScrollViewer"
-                                      Padding="12,8,12,24"
+                                      MinHeight="0"
+                                      ClipToBounds="True"
                                       AllowAutoHide="False"
                                       VerticalScrollBarVisibility="Auto"
                                       HorizontalScrollBarVisibility="Disabled"
                                       ScrollChanged="LogScrollViewer_OnScrollChanged">
-                            <SelectableTextBlock Text="{Binding LogText}"
-                                                 FontFamily="Consolas,Menlo,Monaco,Courier New"
-                                                 FontSize="10"
-                                                 TextWrapping="Wrap"
-                                                 Foreground="{DynamicResource InputTextBrush}"
-                                                 LineHeight="15"
-                                                 Background="Transparent"
-                                                 SelectionBrush="{DynamicResource SystemAccentColor}"/>
+                            <Border Padding="12,8,12,18">
+                                <SelectableTextBlock Text="{Binding LogText}"
+                                                     FontFamily="Consolas,Menlo,Monaco,Courier New"
+                                                     FontSize="10"
+                                                     TextWrapping="Wrap"
+                                                     Foreground="{DynamicResource InputTextBrush}"
+                                                     LineHeight="15"
+                                                     Background="Transparent"
+                                                     SelectionBrush="{DynamicResource SystemAccentColor}"/>
+                            </Border>
                         </ScrollViewer>
                     </Border>
                 </Grid>

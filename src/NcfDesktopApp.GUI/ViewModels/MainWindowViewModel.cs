@@ -492,6 +492,7 @@ public partial class MainWindowViewModel : ViewModelBase
         _templateWorkspaceService = new TemplateWorkspaceService();
         _logBuffer = new StringBuilder();
         _ncfService.OnDownloadLog = AddLog;
+        InitializeAudioServices();
         
         // 🚀 初始化日志批量更新定时器（性能优化）
         _logUpdateTimer = new System.Timers.Timer(LogUpdateIntervalMs);
@@ -569,7 +570,13 @@ public partial class MainWindowViewModel : ViewModelBase
             AspNetCoreEnvironment = AspNetCoreEnvironment,
             VoiceModelId = SelectedVoiceModel?.Id ?? string.Empty,
             VoiceCustomModelPath = VoiceCustomModelPath,
-            VoiceLanguage = VoiceLanguage
+            VoiceLanguage = VoiceLanguage,
+            WakeWordEnabled = WakeWordEnabled,
+            TtsModelId = SelectedTtsModel?.Id ?? string.Empty,
+            TtsCustomModelPath = TtsCustomModelPath,
+            TtsSpeakerId = SelectedTtsVoice?.SpeakerId ?? 45,
+            TtsSpeed = TtsSpeed,
+            TtsAutoRead = TtsAutoRead
         });
     }
 
@@ -1259,6 +1266,12 @@ public partial class MainWindowViewModel : ViewModelBase
                 VoiceCustomModelPath = desktopSettings.VoiceCustomModelPath ?? string.Empty;
                 VoiceLanguage = NormalizeVoiceLanguage(desktopSettings.VoiceLanguage);
                 SelectedVoiceModel = VoiceModelCatalog.FindById(desktopSettings.VoiceModelId);
+                WakeWordEnabled = desktopSettings.WakeWordEnabled;
+                TtsCustomModelPath = desktopSettings.TtsCustomModelPath ?? string.Empty;
+                SelectedTtsModel = TtsModelCatalog.FindById(desktopSettings.TtsModelId);
+                SelectedTtsVoice = TtsModelCatalog.FindVoice(desktopSettings.TtsSpeakerId);
+                TtsSpeed = Math.Clamp(desktopSettings.TtsSpeed, 0.5, 2.0);
+                TtsAutoRead = desktopSettings.TtsAutoRead;
                 LaunchTargetKind = desktopSettings.LaunchTargetKind;
                 RecentNcfPaths.Clear();
                 foreach (var path in desktopSettings.RecentNcfPaths ?? new List<string>())
@@ -1271,10 +1284,13 @@ public partial class MainWindowViewModel : ViewModelBase
                 _suppressMirrorSettingsSave = false;
                 _suppressDesktopSettingsSave = false;
                 RefreshVoiceModelReadiness();
+                RefreshWakeWordModelReadiness();
+                RefreshTtsModelReadiness();
                 RefreshSelectedLaunchTarget();
             });
 
             SaveDesktopSettings();
+            ScheduleWakeWordListeningRefresh();
 
             if (IsManagedTargetMode)
             {

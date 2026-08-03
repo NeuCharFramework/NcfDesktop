@@ -60,14 +60,17 @@ public partial class EmbeddedWebView : UserControl
         // WebView 区域
         _webViewContainer = new Grid
         {
-            RowDefinitions = new RowDefinitions("*")
+            RowDefinitions = new RowDefinitions("*"),
+            MinHeight = 0,
+            ClipToBounds = true
         };
 
         _webViewArea = new Border
         {
             Background = Brushes.White,
             BorderThickness = new Thickness(0),
-            MinHeight = 400,
+            MinHeight = 0,
+            ClipToBounds = true,
             Margin = new Thickness(0),
             Child = _webViewContainer
         };
@@ -111,7 +114,9 @@ public partial class EmbeddedWebView : UserControl
         // 主容器
         var mainContainer = new Grid
         {
-            RowDefinitions = new RowDefinitions("*")
+            RowDefinitions = new RowDefinitions("*"),
+            MinHeight = 0,
+            ClipToBounds = true
         };
         
         mainContainer.Children.Add(_webViewArea);
@@ -120,6 +125,8 @@ public partial class EmbeddedWebView : UserControl
         _contentBorder = new Border
         {
             Background = Brushes.White,
+            MinHeight = 0,
+            ClipToBounds = true,
             Child = mainContainer
         };
 

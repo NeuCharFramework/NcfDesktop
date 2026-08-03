@@ -59,6 +59,15 @@ public partial class DesktopRobotViewModel : ViewModelBase
     [ObservableProperty]
     private bool _isProgressVisible;
 
+    [ObservableProperty]
+    private AudioVisualizationMode _audioVisualizationMode;
+
+    [ObservableProperty]
+    private double _audioVisualizationLevel;
+
+    [ObservableProperty]
+    private double[] _audioVisualizationBands = new double[12];
+
     private DispatcherTimer? _interactionTimer;
     private NcfMascotKind _resolvedMascot = NcfMascotKind.Nono;
     private NcfMascotKind _mascotOverride = NcfMascotKind.Nono;
@@ -201,6 +210,38 @@ public partial class DesktopRobotViewModel : ViewModelBase
             Emoji = state == "正在录音" ? "🎙️" : isError ? "🛠️" : "💬";
             IsProgressVisible = state == "正在识别";
             Progress = 0;
+        });
+    }
+
+    /// <summary>显示 AI 本地朗读状态。</summary>
+    public void SetSpeechState(string state, string detail, bool isError = false)
+    {
+        RunOnUi(() =>
+        {
+            SetMascot(NcfMascotKind.Cici, isError ? NcfMascotPose.Warning : state switch
+            {
+                "正在朗读" => NcfMascotPose.Working,
+                "朗读完成" => NcfMascotPose.Success,
+                _ => NcfMascotPose.Idle
+            });
+            Title = "AdminChat 本地朗读";
+            Detail = detail;
+            StateText = state;
+            StateColor = isError ? "#DC3545" : state == "正在朗读" ? "#7C3AED" : "#16A34A";
+            Emoji = isError ? "🛠️" : state == "正在朗读" ? "🔊" : "💬";
+            IsProgressVisible = state == "正在朗读";
+            Progress = 0;
+        });
+    }
+
+    /// <summary>用实际麦克风或 TTS PCM 数据驱动桌面角色周围的声场。</summary>
+    public void SetAudioVisualization(AudioVisualizationMode mode, AudioVisualizationFrame frame)
+    {
+        RunOnUi(() =>
+        {
+            AudioVisualizationMode = mode;
+            AudioVisualizationLevel = Math.Clamp(frame.Level, 0, 1);
+            AudioVisualizationBands = frame.Bands.ToArray();
         });
     }
 

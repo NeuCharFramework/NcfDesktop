@@ -10,7 +10,10 @@
              HorizontalAlignment="Stretch"
              VerticalAlignment="Stretch">
     
-    <Grid RowDefinitions="Auto,*" VerticalAlignment="Stretch" MinHeight="0">
+    <Grid RowDefinitions="Auto,*"
+          VerticalAlignment="Stretch"
+          MinHeight="0"
+          ClipToBounds="True">
         
         <!-- 顶部工具栏 -->
         <Border Grid.Row="0" Background="{DynamicResource ToolbarBackgroundBrush}" BorderBrush="{DynamicResource ToolbarBorderBrush}" BorderThickness="0,0,0,1" Padding="8">
@@ -70,8 +73,11 @@
         </Border>
         
         <!-- 浏览器内容区域 -->
-        <Border Grid.Row="1" Background="{DynamicResource ContentBackgroundBrush}">
-            <Grid>
+        <Border Grid.Row="1"
+                MinHeight="0"
+                ClipToBounds="True"
+                Background="{DynamicResource ContentBackgroundBrush}">
+            <Grid MinHeight="0" ClipToBounds="True">
                 <!-- 加载状态覆盖层 -->
                 <Border Name="LoadingOverlay" 
                         Background="{DynamicResource ContentBackgroundBrush}" 
@@ -96,6 +102,8 @@
                 <!-- 🔧 方案1优化：移除 IsVisible 绑定，避免标签切换时 WebView 被隐藏 -->
                 <!-- WebView 一旦初始化完成就保持可见，即使 IsBrowserReady 变化也不隐藏 -->
                 <controls:EmbeddedWebView Name="WebViewControl"
+                                       MinHeight="0"
+                                       ClipToBounds="True"
                                        Source="{Binding SiteUrl}"/>
                 
                 <!-- 错误状态显示 -->

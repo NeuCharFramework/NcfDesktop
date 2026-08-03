@@ -10,6 +10,7 @@
 using System;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Threading;
@@ -49,6 +50,12 @@ public partial class MainWindowViewModel
     private readonly SemaphoreSlim _adminChatRefreshLock = new(1, 1);
     private int _optimisticMessageId;
     private int _activeStreamingAssistantId;
+    private readonly object _streamingChunkLock = new();
+    private readonly StringBuilder _pendingStreamingChunks = new();
+    private int _pendingStreamingSessionId;
+    private int _pendingStreamingGeneration;
+    private int _streamingGeneration;
+    private int _streamingChunkFlushScheduled;
 
     public ObservableCollection<AdminChatSessionSummary> AdminChatSessions { get; } = new();
 
@@ -256,6 +263,7 @@ public partial class MainWindowViewModel
             }
 
             ChatInput = string.Empty;
+            ClearPendingStreamingChunks();
             var optimisticUserId = await Dispatcher.UIThread.InvokeAsync(() =>
                 AddOptimisticUserMessage(sessionId, content));
             _activeStreamingAssistantId = 0;
@@ -271,7 +279,6 @@ public partial class MainWindowViewModel
 
             await RefreshAdminChatSessionsAsync(loadSelectedMessages: true, preferredSessionId: sessionId);
             AdminChatStatusText = "消息已通过 Admin Chat API 完成，并由 EventBus 通知同步。";
-            _activeStreamingAssistantId = 0;
         }
         catch (AdminChatApiException ex)
         {
@@ -493,6 +500,7 @@ public partial class MainWindowViewModel
         AdminLoginCommand.NotifyCanExecuteChanged();
         NewAdminChatSessionCommand.NotifyCanExecuteChanged();
         SendAdminChatMessageCommand.NotifyCanExecuteChanged();
+        ScheduleWakeWordListeningRefresh();
     }
 
     private int AddOptimisticUserMessage(int sessionId, string content)
@@ -533,48 +541,126 @@ public partial class MainWindowViewModel
             return;
         }
 
-        Dispatcher.UIThread.Post(() =>
+        var generation = Volatile.Read(ref _streamingGeneration);
+        lock (_streamingChunkLock)
         {
-            if (_activeStreamingAssistantId == 0)
+            if (_pendingStreamingSessionId != sessionId ||
+                _pendingStreamingGeneration != generation)
             {
-                _activeStreamingAssistantId = -Interlocked.Increment(ref _optimisticMessageId);
-                var sequence = AdminChatMessages.Count == 0
-                    ? 1
-                    : AdminChatMessages.Max(message => message.Sequence) + 1;
-                AdminChatMessages.Add(new AdminChatMessage(
-                    _activeStreamingAssistantId,
-                    sessionId,
-                    1,
-                    chunk,
-                    sequence,
-                    DateTime.Now,
-                    null));
-                return;
+                _pendingStreamingChunks.Clear();
+                _pendingStreamingSessionId = sessionId;
+                _pendingStreamingGeneration = generation;
             }
 
-            var index = FindMessageIndex(_activeStreamingAssistantId);
-            if (index < 0 || index >= AdminChatMessages.Count)
+            _pendingStreamingChunks.Append(chunk);
+        }
+
+        ScheduleStreamingChunkFlush();
+    }
+
+    private void ScheduleStreamingChunkFlush()
+    {
+        if (Interlocked.CompareExchange(ref _streamingChunkFlushScheduled, 1, 0) != 0)
+        {
+            return;
+        }
+
+        _ = FlushStreamingChunksAsync();
+    }
+
+    private async Task FlushStreamingChunksAsync()
+    {
+        try
+        {
+            // 合并高频 SSE token，避免每个 token 都触发布局、重绘和自动滚动。
+            await Task.Delay(50).ConfigureAwait(false);
+            string content;
+            int sessionId;
+            int generation;
+            lock (_streamingChunkLock)
             {
-                return;
+                content = _pendingStreamingChunks.ToString();
+                _pendingStreamingChunks.Clear();
+                sessionId = _pendingStreamingSessionId;
+                generation = _pendingStreamingGeneration;
             }
 
-            var existing = AdminChatMessages[index];
-            AdminChatMessages[index] = existing with { Content = existing.Content + chunk };
-        });
+            if (content.Length != 0)
+            {
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                    AppendStreamingAssistantChunkOnUi(sessionId, generation, content));
+            }
+        }
+        catch (Exception ex)
+        {
+            AddLog($"⚠️ 流式回复界面刷新失败: {ex.Message}");
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _streamingChunkFlushScheduled, 0);
+            bool hasPendingChunks;
+            lock (_streamingChunkLock)
+            {
+                hasPendingChunks = _pendingStreamingChunks.Length != 0;
+            }
+
+            if (hasPendingChunks)
+            {
+                ScheduleStreamingChunkFlush();
+            }
+        }
+    }
+
+    private void AppendStreamingAssistantChunkOnUi(int sessionId, int generation, string chunk)
+    {
+        // 完整消息可能已先到达并替换临时消息，此时丢弃上一代迟到的界面刷新。
+        if (generation != Volatile.Read(ref _streamingGeneration))
+        {
+            return;
+        }
+
+        if (_activeStreamingAssistantId == 0)
+        {
+            _activeStreamingAssistantId = -Interlocked.Increment(ref _optimisticMessageId);
+            var sequence = AdminChatMessages.Count == 0
+                ? 1
+                : AdminChatMessages.Max(message => message.Sequence) + 1;
+            AdminChatMessages.Add(new AdminChatMessage(
+                _activeStreamingAssistantId,
+                sessionId,
+                1,
+                chunk,
+                sequence,
+                DateTime.Now,
+                null));
+            return;
+        }
+
+        var index = FindMessageIndex(_activeStreamingAssistantId);
+        if (index < 0 || index >= AdminChatMessages.Count)
+        {
+            return;
+        }
+
+        var existing = AdminChatMessages[index];
+        AdminChatMessages[index] = existing with { Content = existing.Content + chunk };
     }
 
     private void CompleteStreamingAssistantMessage(AdminChatMessage message)
     {
+        ClearPendingStreamingChunks();
         Dispatcher.UIThread.Post(() =>
         {
             RemoveMessageById(_activeStreamingAssistantId);
             AddOrReplaceAdminChatMessage(message);
             _activeStreamingAssistantId = 0;
+            _ = TryAutoReadAssistantMessageAsync(message);
         });
     }
 
     private void RemovePendingStreamingMessages()
     {
+        ClearPendingStreamingChunks();
         Dispatcher.UIThread.Post(() =>
         {
             RemoveMessageById(_activeStreamingAssistantId);
@@ -587,6 +673,17 @@ public partial class MainWindowViewModel
                 }
             }
         });
+    }
+
+    private void ClearPendingStreamingChunks()
+    {
+        var generation = Interlocked.Increment(ref _streamingGeneration);
+        lock (_streamingChunkLock)
+        {
+            _pendingStreamingChunks.Clear();
+            _pendingStreamingSessionId = 0;
+            _pendingStreamingGeneration = generation;
+        }
     }
 
     private void AddOrReplaceAdminChatMessage(AdminChatMessage message)

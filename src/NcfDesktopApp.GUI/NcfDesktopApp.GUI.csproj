@@ -10,6 +10,7 @@
       1、GUI、测试和 Microsoft.Extensions 依赖统一升级到 .NET 10，移除冗余基础库引用并修复高严重性依赖漏洞
       2、六个平台继续使用自包含单文件发布，目标电脑无需预装 .NET Runtime
       3、macOS 架构 ZIP 改为包含可双击的 .app，并额外发布 Universal .app 压缩包和 DMG
+      4、新增默认关闭的固定唤醒词“你好 Cici”，使用单关键词 INT8 流式模型；可在工作台设置中随时关闭并立即释放麦克风
       [2026-08-01] v0.5.1 优化远程授权退出和内置浏览器
       1、管理员撤销 DesktopBridge 会话后立即停止当前网站并清理 Admin Chat 和内置网页，桌面应用保持打开
       2、删除无实现的前进后退、重复打开和危险的停止站点按钮，保留必要浏览器操作
@@ -62,6 +63,7 @@
   <ItemGroup>
     <Folder Include="Models\" />
     <AvaloniaResource Include="Assets\**" />
+    <InternalsVisibleTo Include="NcfDesktopApp.GUI.Tests" />
   </ItemGroup>
 
   <ItemGroup>
@@ -81,6 +83,8 @@
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.10" />
     <PackageReference Include="Microsoft.Extensions.Configuration" Version="10.0.10" />
     <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="10.0.10" />
+    <PackageReference Include="org.k2fsa.sherpa.onnx" Version="1.13.4" />
+    <PackageReference Include="SharpCompress" Version="1.0.0" />
     <PackageReference Include="SoundFlow" Version="1.4.1" />
     <PackageReference Include="Whisper.net" Version="1.8.1" />
     <PackageReference Include="Whisper.net.Runtime" Version="1.8.1" />

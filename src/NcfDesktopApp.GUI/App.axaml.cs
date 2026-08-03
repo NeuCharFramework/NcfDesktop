@@ -27,6 +27,7 @@ public partial class App : Application
     }
     public override void Initialize()
     {
+        CrashDiagnosticService.Register();
         AvaloniaXamlLoader.Load(this);
     }
 
@@ -36,7 +37,12 @@ public partial class App : Application
         {
             // 每个窗口拥有独立的进程/端口/Bridge 会话；最后一个工作台关闭后才退出。
             desktop.ShutdownMode = ShutdownMode.OnLastWindowClose;
-            desktop.Exit += (_, _) => LocalVoiceInputService.DisposeShared();
+            desktop.Exit += (_, _) =>
+            {
+                LocalWakeWordService.DisposeShared();
+                LocalVoiceInputService.DisposeShared();
+                LocalTextToSpeechService.DisposeShared();
+            };
 
             // Avoid duplicate validations from both Avalonia and the CommunityToolkit. 
             // More info: https://docs.avaloniaui.net/docs/guides/development-guides/data-validation#manage-validationplugins

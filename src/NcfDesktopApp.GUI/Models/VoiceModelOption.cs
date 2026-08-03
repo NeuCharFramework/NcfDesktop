@@ -31,7 +31,9 @@ public sealed record VoiceModelOption(
     long MinimumExpectedBytes,
     bool CanDownload)
 {
-    public override string ToString() => DisplayName;
+    public string DisplayLabel => $"{DisplayName} · {ApproximateSizeText}";
+
+    public override string ToString() => DisplayLabel;
 }
 
 internal enum VoiceModelReadinessState

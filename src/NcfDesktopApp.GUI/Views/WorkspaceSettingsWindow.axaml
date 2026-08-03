@@ -10,7 +10,9 @@
         ShowInTaskbar="False"
         Icon="/Assets/NCF-logo.png">
 
-    <Grid RowDefinitions="Auto,*,Auto" Background="{DynamicResource ContentBackgroundBrush}">
+    <Grid RowDefinitions="Auto,*,Auto"
+          ClipToBounds="True"
+          Background="{DynamicResource ContentBackgroundBrush}">
         <Border Grid.Row="0"
                 Background="{DynamicResource ToolbarBackgroundBrush}"
                 BorderBrush="{DynamicResource ToolbarBorderBrush}"
@@ -24,10 +26,12 @@
         </Border>
 
         <ScrollViewer Grid.Row="1"
-                      Padding="20,16"
+                      MinHeight="0"
+                      ClipToBounds="True"
                       VerticalScrollBarVisibility="Auto"
                       HorizontalScrollBarVisibility="Disabled">
-            <StackPanel Spacing="12">
+            <Border Padding="20,16,20,20">
+                <StackPanel Spacing="12">
                 <Border Classes="settings-section">
                     <StackPanel Spacing="12">
                         <StackPanel Spacing="2">
@@ -90,7 +94,7 @@
                             <ComboBox Grid.Row="0" Grid.Column="1"
                                       ItemsSource="{Binding VoiceModelOptions}"
                                       SelectedItem="{Binding SelectedVoiceModel, Mode=TwoWay}"
-                                      DisplayMemberBinding="{Binding DisplayName}"
+                                      DisplayMemberBinding="{Binding DisplayLabel}"
                                       PlaceholderText="请先选择模型"/>
 
                             <TextBlock Grid.Row="1" Grid.Column="0" Text="识别语言"
@@ -142,6 +146,136 @@
                                     Classes="secondary-action"
                                     Margin="0,0,0,8"/>
                         </WrapPanel>
+
+                        <Border Background="#0D2563EB" CornerRadius="7" Padding="11">
+                            <StackPanel Spacing="7">
+                                <CheckBox Content="固定唤醒词（性能排查中，已临时停用）"
+                                          IsChecked="{Binding WakeWordEnabled, Mode=TwoWay}"
+                                          IsEnabled="{Binding IsWakeWordControlEnabled}"/>
+                                <TextBlock Text="{Binding WakePhraseText, StringFormat='唤醒短语：{0}'}"
+                                           FontWeight="SemiBold"
+                                           FontSize="11"/>
+                                <TextBlock Text="仅当 AdminChat、Whisper 与唤醒模型均就绪时才监听；关闭后立即释放麦克风。监听音频不保存、不上传，朗读和录音期间会自动暂停以防误触发。说完唤醒词后请稍作停顿再说指令。"
+                                           FontSize="10.5"
+                                           TextWrapping="Wrap"
+                                           Foreground="{DynamicResource SecondaryTextBrush}"/>
+                                <TextBlock Text="{Binding WakeWordStatusText}"
+                                           Foreground="{Binding WakeWordStatusColor}"
+                                           FontWeight="SemiBold"
+                                           TextWrapping="Wrap"/>
+                                <TextBlock Text="{Binding WakeWordDownloadProgressText}"
+                                           IsVisible="{Binding IsWakeWordModelBusy}"
+                                           FontSize="10.5"
+                                           Foreground="{DynamicResource SecondaryTextBrush}"/>
+                                <ProgressBar IsVisible="{Binding IsWakeWordModelBusy}"
+                                             IsIndeterminate="{Binding IsWakeWordDownloadProgressIndeterminate}"
+                                             Value="{Binding WakeWordDownloadProgressValue}"
+                                             Minimum="0" Maximum="100" Height="4"/>
+                                <WrapPanel Orientation="Horizontal">
+                                    <Button Content="下载唤醒模型"
+                                            Command="{Binding DownloadWakeWordModelCommand}"
+                                            Classes="primary-action"
+                                            Margin="0,0,8,0"/>
+                                    <Button Content="取消下载"
+                                            Command="{Binding CancelWakeWordModelDownloadCommand}"
+                                            IsVisible="{Binding IsWakeWordModelBusy}"
+                                            Classes="secondary-action"
+                                            Margin="0,0,8,0"/>
+                                    <Button Content="打开唤醒模型目录"
+                                            Command="{Binding OpenWakeWordModelDirectoryCommand}"
+                                            Classes="secondary-action"/>
+                                </WrapPanel>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </Border>
+
+                <Border Classes="settings-section">
+                    <StackPanel Spacing="10">
+                        <StackPanel Spacing="2">
+                            <TextBlock Text="本地语音输出（TTS）" Classes="section-title"/>
+                            <TextBlock Text="Kokoro 在本机生成 AI 朗读音频，不上传回复文本或音频；模型大小为下载包估算值。"
+                                       Classes="section-description"/>
+                        </StackPanel>
+
+                        <Grid ColumnDefinitions="120,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="10">
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="离线模型"
+                                       Classes="field-label"/>
+                            <ComboBox Grid.Row="0" Grid.Column="1"
+                                      ItemsSource="{Binding TtsModelOptions}"
+                                      SelectedItem="{Binding SelectedTtsModel, Mode=TwoWay}"
+                                      DisplayMemberBinding="{Binding DisplayLabel}"
+                                      PlaceholderText="请先选择朗读模型"/>
+
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="中文音色"
+                                       Classes="field-label"/>
+                            <ComboBox Grid.Row="1" Grid.Column="1"
+                                      ItemsSource="{Binding TtsVoiceOptions}"
+                                      SelectedItem="{Binding SelectedTtsVoice, Mode=TwoWay}"
+                                      DisplayMemberBinding="{Binding DisplayName}"/>
+
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="语速"
+                                       Classes="field-label"/>
+                            <NumericUpDown Grid.Row="2" Grid.Column="1"
+                                           Value="{Binding TtsSpeed, Mode=TwoWay}"
+                                           Minimum="0.5" Maximum="2.0" Increment="0.05"/>
+                        </Grid>
+
+                        <TextBlock Text="{Binding SelectedTtsModel.Description}"
+                                   FontSize="10.5"
+                                   TextWrapping="Wrap"
+                                   Foreground="{DynamicResource SecondaryTextBrush}"/>
+                        <TextBlock Text="{Binding SelectedTtsVoice.Description}"
+                                   FontSize="10.5"
+                                   TextWrapping="Wrap"
+                                   Foreground="{DynamicResource SecondaryTextBrush}"/>
+                        <CheckBox Content="AI 回复完成后自动朗读"
+                                  IsChecked="{Binding TtsAutoRead, Mode=TwoWay}"/>
+
+                        <Border Background="#0D7C3AED" CornerRadius="6" Padding="10">
+                            <StackPanel Spacing="5">
+                                <TextBlock Text="{Binding TtsModelStatusText}"
+                                           Foreground="{Binding TtsModelStatusColor}"
+                                           FontWeight="SemiBold"
+                                           TextWrapping="Wrap"/>
+                                <SelectableTextBlock Text="{Binding TtsModelPathText}"
+                                                     FontFamily="Consolas,Menlo,Monaco,Courier New"
+                                                     FontSize="9.5"
+                                                     TextWrapping="Wrap"/>
+                                <TextBlock Text="{Binding TtsDownloadProgressText}"
+                                           FontSize="10.5"
+                                           Foreground="{DynamicResource SecondaryTextBrush}"/>
+                                <TextBlock Text="{Binding TtsPlaybackStatusText}"
+                                           FontSize="10.5"
+                                           TextWrapping="Wrap"
+                                           Foreground="{DynamicResource SecondaryTextBrush}"/>
+                                <ProgressBar IsVisible="{Binding IsTtsModelBusy}"
+                                             IsIndeterminate="True" Height="4"/>
+                            </StackPanel>
+                        </Border>
+
+                        <WrapPanel Orientation="Horizontal">
+                            <Button Content="下载所选模型"
+                                    Command="{Binding DownloadTtsModelCommand}"
+                                    Classes="primary-action"
+                                    Margin="0,0,8,8"/>
+                            <Button Content="选择本地模型目录"
+                                    Command="{Binding SelectCustomTtsModelCommand}"
+                                    Classes="secondary-action"
+                                    Margin="0,0,8,8"/>
+                            <Button Content="试听音色"
+                                    Command="{Binding PreviewTtsVoiceCommand}"
+                                    Classes="secondary-action"
+                                    Margin="0,0,8,8"/>
+                            <Button Content="停止 / 取消"
+                                    Command="{Binding CancelTtsOperationCommand}"
+                                    Classes="secondary-action"
+                                    Margin="0,0,8,8"/>
+                            <Button Content="打开模型目录"
+                                    Command="{Binding OpenTtsModelDirectoryCommand}"
+                                    Classes="secondary-action"
+                                    Margin="0,0,0,8"/>
+                        </WrapPanel>
                     </StackPanel>
                 </Border>
 
@@ -181,7 +315,8 @@
                                 Classes="secondary-action"/>
                     </StackPanel>
                 </Border>
-            </StackPanel>
+                </StackPanel>
+            </Border>
         </ScrollViewer>
 
         <Border Grid.Row="2"

@@ -10,7 +10,9 @@
         ShowInTaskbar="False"
         Icon="/Assets/NCF-logo.png">
 
-    <Grid RowDefinitions="Auto,*,Auto" Background="{DynamicResource ContentBackgroundBrush}">
+    <Grid RowDefinitions="Auto,*,Auto"
+          ClipToBounds="True"
+          Background="{DynamicResource ContentBackgroundBrush}">
         <Border Grid.Row="0"
                 Background="{DynamicResource ToolbarBackgroundBrush}"
                 BorderBrush="{DynamicResource ToolbarBorderBrush}"
@@ -23,10 +25,13 @@
             </StackPanel>
         </Border>
 
-        <ScrollViewer Grid.Row="1" Padding="22,18"
+        <ScrollViewer Grid.Row="1"
+                      MinHeight="0"
+                      ClipToBounds="True"
                       VerticalScrollBarVisibility="Auto"
                       HorizontalScrollBarVisibility="Disabled">
-            <StackPanel Spacing="16">
+            <Border Padding="22,18,22,22">
+                <StackPanel Spacing="16">
                 <Border Background="#102563EB"
                         BorderBrush="#402563EB"
                         BorderThickness="1"
@@ -68,7 +73,8 @@
                                Foreground="{DynamicResource SecondaryTextBrush}"
                                TextWrapping="Wrap"/>
                 </Border>
-            </StackPanel>
+                </StackPanel>
+            </Border>
         </ScrollViewer>
 
         <Border Grid.Row="2"

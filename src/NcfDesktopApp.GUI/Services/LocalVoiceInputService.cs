@@ -8,6 +8,7 @@
 ----------------------------------------------------------------*/
 
 using System;
+using System.Buffers;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -26,6 +27,8 @@ namespace NcfDesktopApp.GUI.Services;
 
 internal interface ILocalVoiceInputService
 {
+    event Action<AudioVisualizationFrame>? VisualizationFrameAvailable;
+
     Guid? RecordingOwner { get; }
 
     Task DownloadModelAsync(
@@ -48,24 +51,33 @@ internal interface ILocalVoiceInputService
 
 internal sealed class LocalVoiceInputService : ILocalVoiceInputService, IDisposable
 {
+    private const int MaximumRecordingSeconds = 5 * 60;
+    private const int MaximumRecordingSampleCount = VoiceAudioAnalysis.SampleRate * MaximumRecordingSeconds;
     private static readonly Lazy<LocalVoiceInputService> SharedInstance = new(() => new LocalVoiceInputService());
     private readonly SemaphoreSlim _operationGate = new(1, 1);
     private readonly object _stateLock = new();
+    private readonly object _sampleLock = new();
 
     private MiniAudioEngine? _audioEngine;
     private AudioCaptureDevice? _captureDevice;
     private Recorder? _recorder;
-    private MemoryStream? _recordingStream;
+    private ArrayBufferWriter<float>? _recordingSamples;
+    private Exception? _captureFailure;
+    private bool _recordingLimitReached;
     private Guid? _recordingOwner;
     private string _recordingModelPath = string.Empty;
+    private string _recordingDeviceName = string.Empty;
     private WhisperFactory? _loadedFactory;
     private string _loadedModelPath = string.Empty;
     private long _loadedModelLength;
     private DateTime _loadedModelWriteTimeUtc;
     private VoiceOperationStage _operationStage;
+    private long _lastVisualizationTick;
     private bool _disposed;
 
     public static LocalVoiceInputService Shared => SharedInstance.Value;
+
+    public event Action<AudioVisualizationFrame>? VisualizationFrameAvailable;
 
     public static void DisposeShared()
     {
@@ -193,14 +205,15 @@ internal sealed class LocalVoiceInputService : ILocalVoiceInputService, IDisposa
 
             var format = new AudioFormat
             {
-                SampleRate = 16000,
+                SampleRate = VoiceAudioAnalysis.SampleRate,
                 Channels = 1,
-                Format = SampleFormat.S16,
+                // SoundFlow 的录音回调统一提供 float；直接使用 F32 可避免把 float 内存按 S16 编码。
+                Format = SampleFormat.F32,
                 Layout = ChannelLayout.Mono
             };
-            _recordingStream = new MemoryStream();
+            PrepareSampleBuffer();
             _captureDevice = _audioEngine.InitializeCaptureDevice(device, format);
-            _recorder = new Recorder(_captureDevice, _recordingStream, "wav");
+            _recorder = new Recorder(_captureDevice, CaptureAudioSamples);
 
             _captureDevice.Start();
             var result = _recorder.StartRecording();
@@ -213,6 +226,7 @@ internal sealed class LocalVoiceInputService : ILocalVoiceInputService, IDisposa
             {
                 _recordingOwner = owner;
                 _recordingModelPath = modelPath;
+                _recordingDeviceName = device.Name;
                 _operationStage = VoiceOperationStage.Recording;
             }
         }
@@ -230,8 +244,9 @@ internal sealed class LocalVoiceInputService : ILocalVoiceInputService, IDisposa
         CancellationToken cancellationToken)
     {
         BeginTranscription(owner);
-        byte[] audioBytes;
+        CapturedAudio capturedAudio;
         string modelPath;
+        string deviceName;
         try
         {
             var stopResult = await _recorder!.StopRecordingAsync().ConfigureAwait(false);
@@ -241,17 +256,37 @@ internal sealed class LocalVoiceInputService : ILocalVoiceInputService, IDisposa
             }
 
             _captureDevice?.Stop();
-            audioBytes = _recordingStream!.ToArray();
+            capturedAudio = TakeCapturedAudio();
             lock (_stateLock)
             {
                 modelPath = _recordingModelPath;
+                deviceName = _recordingDeviceName;
             }
             CleanupRecordingResources(discardAudio: true);
 
-            // WAV 头之外至少保留约 0.1 秒音频，避免把误触当作有效输入。
-            if (audioBytes.Length < 3200)
+            if (capturedAudio.Failure != null)
             {
-                throw new InvalidOperationException("录音时间过短，请重新录入。");
+                throw new InvalidOperationException(
+                    $"麦克风采集失败：{capturedAudio.Failure.Message}",
+                    capturedAudio.Failure);
+            }
+
+            if (capturedAudio.LimitReached)
+            {
+                throw new InvalidOperationException($"单次录音不能超过 {MaximumRecordingSeconds / 60} 分钟，请缩短后重试。");
+            }
+
+            var metrics = VoiceAudioAnalysis.Analyze(capturedAudio.Samples);
+            if (metrics.SampleCount < VoiceAudioAnalysis.MinimumSampleCount)
+            {
+                throw new InvalidOperationException("录音时间过短，请至少录入 0.25 秒。");
+            }
+
+            if (!VoiceAudioAnalysis.HasUsableSignal(metrics))
+            {
+                throw new InvalidOperationException(
+                    $"未检测到有效的麦克风声音（设备：{deviceName}，峰值：{FormatDbfs(metrics.PeakDbfs)} dBFS，" +
+                    $"RMS：{FormatDbfs(metrics.RootMeanSquareDbfs)} dBFS）。请检查麦克风权限、默认输入设备和输入音量。");
             }
 
             var factory = GetOrLoadFactory(modelPath);
@@ -259,9 +294,8 @@ internal sealed class LocalVoiceInputService : ILocalVoiceInputService, IDisposa
                 .WithLanguage(NormalizeLanguage(language))
                 .WithThreads(Math.Clamp(Environment.ProcessorCount / 2, 1, 4))
                 .Build();
-            using var waveStream = new MemoryStream(audioBytes, writable: false);
             var transcript = new StringBuilder();
-            await foreach (var segment in processor.ProcessAsync(waveStream, cancellationToken))
+            await foreach (var segment in processor.ProcessAsync(capturedAudio.Samples, cancellationToken))
             {
                 transcript.Append(segment.Text);
             }
@@ -270,6 +304,12 @@ internal sealed class LocalVoiceInputService : ILocalVoiceInputService, IDisposa
             if (text.Length == 0)
             {
                 throw new InvalidOperationException("未识别到有效语音，请靠近麦克风后重试。");
+            }
+
+            if (VoiceAudioAnalysis.IsOnlyNonSpeechAnnotation(text))
+            {
+                throw new InvalidOperationException(
+                    "录音中没有识别到可用的人声内容，模型只返回了声音或静音标记。请检查麦克风设备后重试。");
             }
 
             return text;
@@ -382,8 +422,7 @@ internal sealed class LocalVoiceInputService : ILocalVoiceInputService, IDisposa
         {
             if (_recordingOwner == null ||
                 _operationStage != VoiceOperationStage.Recording ||
-                _recorder == null ||
-                _recordingStream == null)
+                _recorder == null)
             {
                 throw new InvalidOperationException("当前没有正在进行的录音。");
             }
@@ -421,9 +460,10 @@ internal sealed class LocalVoiceInputService : ILocalVoiceInputService, IDisposa
 
         if (discardAudio)
         {
-            _recordingStream?.Dispose();
+            ClearCapturedAudio();
         }
-        _recordingStream = null;
+
+        PublishVisualization(AudioVisualizationFrame.Silent);
     }
 
     private void ClearRecordingState()
@@ -432,9 +472,123 @@ internal sealed class LocalVoiceInputService : ILocalVoiceInputService, IDisposa
         {
             _recordingOwner = null;
             _recordingModelPath = string.Empty;
+            _recordingDeviceName = string.Empty;
             _operationStage = VoiceOperationStage.None;
         }
     }
+
+    private void PrepareSampleBuffer()
+    {
+        lock (_sampleLock)
+        {
+            _recordingSamples = new ArrayBufferWriter<float>(VoiceAudioAnalysis.SampleRate * 10);
+            _captureFailure = null;
+            _recordingLimitReached = false;
+        }
+    }
+
+    private void CaptureAudioSamples(Span<float> samples, Capability capability)
+    {
+        if (capability != Capability.Record)
+        {
+            return;
+        }
+
+        try
+        {
+            var capturedCount = 0;
+            lock (_sampleLock)
+            {
+                if (_recordingSamples == null || _captureFailure != null)
+                {
+                    return;
+                }
+
+                var remaining = MaximumRecordingSampleCount - _recordingSamples.WrittenCount;
+                if (remaining <= 0)
+                {
+                    _recordingLimitReached = true;
+                    return;
+                }
+
+                var count = Math.Min(samples.Length, remaining);
+                var destination = _recordingSamples.GetSpan(count);
+                for (var index = 0; index < count; index++)
+                {
+                    var sample = samples[index];
+                    destination[index] = float.IsFinite(sample)
+                        ? Math.Clamp(sample, -1f, 1f)
+                        : 0f;
+                }
+                _recordingSamples.Advance(count);
+                capturedCount = count;
+
+                if (count < samples.Length)
+                {
+                    _recordingLimitReached = true;
+                }
+            }
+
+            var now = Environment.TickCount64;
+            var previous = Interlocked.Read(ref _lastVisualizationTick);
+            if (capturedCount > 0 && now - previous >= 45 &&
+                Interlocked.CompareExchange(ref _lastVisualizationTick, now, previous) == previous)
+            {
+                PublishVisualization(AudioSpectrumAnalysis.Analyze(
+                    samples[..capturedCount],
+                    VoiceAudioAnalysis.SampleRate));
+            }
+        }
+        catch (Exception ex)
+        {
+            lock (_sampleLock)
+            {
+                _captureFailure ??= ex;
+            }
+        }
+    }
+
+    private CapturedAudio TakeCapturedAudio()
+    {
+        lock (_sampleLock)
+        {
+            var samples = _recordingSamples?.WrittenSpan.ToArray() ?? Array.Empty<float>();
+            var result = new CapturedAudio(samples, _captureFailure, _recordingLimitReached);
+            _recordingSamples = null;
+            _captureFailure = null;
+            _recordingLimitReached = false;
+            return result;
+        }
+    }
+
+    private void ClearCapturedAudio()
+    {
+        lock (_sampleLock)
+        {
+            _recordingSamples = null;
+            _captureFailure = null;
+            _recordingLimitReached = false;
+        }
+    }
+
+    private static string FormatDbfs(double value)
+    {
+        return double.IsNegativeInfinity(value) ? "-∞" : value.ToString("F1");
+    }
+
+    private void PublishVisualization(AudioVisualizationFrame frame)
+    {
+        try
+        {
+            VisualizationFrameAvailable?.Invoke(frame);
+        }
+        catch
+        {
+            // UI 可视化订阅者不得中断实时录音回调。
+        }
+    }
+
+    private sealed record CapturedAudio(float[] Samples, Exception? Failure, bool LimitReached);
 
     private enum VoiceOperationStage
     {
