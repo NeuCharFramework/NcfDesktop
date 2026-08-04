@@ -13,6 +13,7 @@ using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
@@ -30,6 +31,8 @@ public sealed class DesktopBridgeClient : IAsyncDisposable
     private const string PairingPollPath = "/api/Senparc.Xncf.DesktopBridge/pairing/poll";
     private const string DefaultEventsPath = "/api/Senparc.Xncf.DesktopBridge/events";
     private const string DefaultAuthorizedSyncPath = "/api/Senparc.Xncf.DesktopBridge/authorized-sync/events";
+    private const string DefaultAdminAuthHandoffRequestPath = "/api/Senparc.Xncf.DesktopBridge/admin-auth-handoff/requests";
+    private const string DefaultAdminAuthHandoffRedeemPath = "/api/Senparc.Xncf.DesktopBridge/admin-auth-handoff/redeem";
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         PropertyNameCaseInsensitive = true
@@ -59,6 +62,145 @@ public sealed class DesktopBridgeClient : IAsyncDisposable
     public event Action<string>? AuthorizedSyncAuthorizationFailed;
 
     public event Action<string>? SessionRevoked;
+
+    public async Task<DesktopAdminAuthHandoff> CreateAdminAuthHandoffAsync(
+        string siteUrl,
+        string sessionToken,
+        string? returnPath,
+        string? requestPath = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (!SiteEndpointPolicy.TryCreateEndpoint(
+                siteUrl,
+                requestPath ?? DefaultAdminAuthHandoffRequestPath,
+                out var endpoint,
+                out var endpointError))
+        {
+            throw new InvalidOperationException(endpointError);
+        }
+
+        var verifier = CreateBase64UrlSecret();
+        var challenge = Base64UrlEncode(SHA256.HashData(Encoding.ASCII.GetBytes(verifier)));
+        using var request = CreateRequest(HttpMethod.Post, endpoint, sessionToken);
+        request.Content = CreateJsonContent(new { codeChallenge = challenge, returnPath });
+        using var response = await _httpClient.SendAsync(
+                request,
+                HttpCompletionOption.ResponseContentRead,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        if (response.StatusCode == HttpStatusCode.NotFound)
+        {
+            throw new InvalidOperationException("当前 DesktopBridge 或 Admin 模块不支持 WebView 自动授权。");
+        }
+
+        if (response.StatusCode == HttpStatusCode.TooManyRequests)
+        {
+            throw new InvalidOperationException("WebView 自动授权请求过于频繁，请稍后重试。");
+        }
+
+        if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+        {
+            throw new InvalidOperationException("DesktopBridge 会话无效，或远程站点未使用 HTTPS。");
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException($"创建 WebView 自动授权失败（HTTP {(int)response.StatusCode}）。");
+        }
+
+        var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        var result = JsonSerializer.Deserialize<DesktopAdminAuthHandoffCreateResponse>(json, JsonOptions);
+        if (result == null || result.RequestId == Guid.Empty || result.ExpiresAt <= DateTimeOffset.UtcNow ||
+            string.IsNullOrWhiteSpace(result.ApprovalPath))
+        {
+            throw new InvalidOperationException("DesktopBridge 返回了无效的自动授权挑战。");
+        }
+
+        return new DesktopAdminAuthHandoff(
+            result.RequestId,
+            result.ExpiresAt,
+            result.ApprovalPath,
+            Math.Clamp(result.PollIntervalMilliseconds, 500, 5000),
+            verifier);
+    }
+
+    public async Task<DesktopAdminAuthHandoffRedeemResponse> RedeemAdminAuthHandoffAsync(
+        string siteUrl,
+        string sessionToken,
+        DesktopAdminAuthHandoff handoff,
+        string? redeemPath = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (!SiteEndpointPolicy.TryCreateEndpoint(
+                siteUrl,
+                redeemPath ?? DefaultAdminAuthHandoffRedeemPath,
+                out var endpoint,
+                out var endpointError))
+        {
+            throw new InvalidOperationException(endpointError);
+        }
+
+        using var request = CreateRequest(HttpMethod.Post, endpoint, sessionToken);
+        request.Content = CreateJsonContent(new
+        {
+            requestId = handoff.RequestId,
+            codeVerifier = handoff.CodeVerifier
+        });
+        using var response = await _httpClient.SendAsync(
+                request,
+                HttpCompletionOption.ResponseContentRead,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        if (response.StatusCode == HttpStatusCode.NotFound)
+        {
+            throw new InvalidOperationException("当前 DesktopBridge 或 Admin 模块不支持 WebView 自动授权。");
+        }
+
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            throw new InvalidOperationException("DesktopBridge 会话已失效，请重新连接站点。");
+        }
+
+        var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        DesktopAdminAuthHandoffRedeemResponse? result;
+        try
+        {
+            result = JsonSerializer.Deserialize<DesktopAdminAuthHandoffRedeemResponse>(json, JsonOptions);
+        }
+        catch (JsonException)
+        {
+            result = null;
+        }
+
+        if (result == null || string.IsNullOrWhiteSpace(result.Status))
+        {
+            throw new InvalidOperationException($"WebView 自动授权返回无效响应（HTTP {(int)response.StatusCode}）。");
+        }
+
+        if (response.StatusCode == HttpStatusCode.Accepted ||
+            string.Equals(result.Status, "pending", StringComparison.OrdinalIgnoreCase))
+        {
+            return result with { Status = "pending" };
+        }
+
+        if (string.Equals(result.Status, "denied", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(result.Status, "invalid", StringComparison.OrdinalIgnoreCase))
+        {
+            return result;
+        }
+
+        if (!response.IsSuccessStatusCode ||
+            !string.Equals(result.Status, "approved", StringComparison.OrdinalIgnoreCase) ||
+            string.IsNullOrWhiteSpace(result.UserName) ||
+            string.IsNullOrWhiteSpace(result.AccessToken) || result.ExpiresUtc == null)
+        {
+            throw new InvalidOperationException($"领取 WebView 自动授权失败（HTTP {(int)response.StatusCode}）。");
+        }
+
+        return result;
+    }
 
     public async Task<DesktopBridgePairingCreateResponse> CreatePairingRequestAsync(
         string siteUrl,
@@ -726,6 +868,15 @@ public sealed class DesktopBridgeClient : IAsyncDisposable
             Encoding.UTF8,
             "application/json");
     }
+
+    private static string CreateBase64UrlSecret() =>
+        Base64UrlEncode(RandomNumberGenerator.GetBytes(32));
+
+    private static string Base64UrlEncode(byte[] value) =>
+        Convert.ToBase64String(value)
+            .TrimEnd('=')
+            .Replace('+', '-')
+            .Replace('/', '_');
 
     private static T? DeserializePairingResponse<T>(string json)
     {

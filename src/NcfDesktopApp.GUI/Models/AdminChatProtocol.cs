@@ -9,6 +9,7 @@
 
 using System;
 using System.Collections.Generic;
+using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace NcfDesktopApp.GUI.Models;
 
@@ -43,6 +44,67 @@ public sealed record AdminChatMessage(
     public string SenderColor => IsUser ? "#2563EB" : "#7C3AED";
 
     public string DisplayTime => AddTime == default ? string.Empty : AddTime.ToLocalTime().ToString("HH:mm");
+
+    public bool CanDelete => Id > 0;
+}
+
+public sealed record AdminChatAiModelOption(
+    int Id,
+    string Name,
+    string Description,
+    bool IsDefault)
+{
+    public string DisplayName => string.IsNullOrWhiteSpace(Name) ? $"模型 {Id}" : Name;
+}
+
+public sealed record AdminChatAvailableModule(
+    string Uid,
+    string Name,
+    string DisplayName,
+    string Version,
+    string Description,
+    string Icon,
+    bool IsRequired);
+
+public sealed record AdminChatSessionModule(
+    int SessionId,
+    string XncfModuleUid,
+    string ModuleName,
+    string ModuleVersion,
+    string DisplayName,
+    string? MenuName,
+    string? ModuleDescription);
+
+public sealed partial class AdminChatModuleOption : ObservableObject
+{
+    public AdminChatModuleOption(AdminChatAvailableModule module)
+    {
+        Module = module;
+    }
+
+    public AdminChatAvailableModule Module { get; }
+
+    public string Uid => Module.Uid;
+
+    public string Name => Module.Name;
+
+    public string Version => Module.Version;
+
+    public string Description => Module.Description;
+
+    public string DisplayName => string.IsNullOrWhiteSpace(Module.DisplayName) ? Module.Name : Module.DisplayName;
+
+    public string DisplayLabel => string.IsNullOrWhiteSpace(Version)
+        ? DisplayName
+        : $"{DisplayName} · {Version}";
+
+    [ObservableProperty]
+    private bool _isSelected;
+
+    [ObservableProperty]
+    private bool _isAssociated;
+
+    public bool IsSelectionEnabled => !Module.IsRequired;
 }
 
 internal sealed class AppResponseEnvelope<T>
@@ -73,13 +135,15 @@ internal sealed class AdminChatSessionDetailData
     public AdminChatSessionDetail? Session { get; set; }
 }
 
-internal sealed class AdminChatSessionDetail
+public sealed class AdminChatSessionDetail
 {
     public int Id { get; set; }
 
     public string Title { get; set; } = string.Empty;
 
     public List<AdminChatMessage> Messages { get; set; } = new();
+
+    public List<AdminChatSessionModule> Modules { get; set; } = new();
 }
 
 internal sealed class AdminChatCreateSessionData
@@ -94,6 +158,18 @@ internal sealed class AdminChatSendMessageData
     public AdminChatMessage? UserMessage { get; set; }
 
     public AdminChatMessage? AssistantMessage { get; set; }
+}
+
+internal sealed class AdminChatAiModelOptionsData
+{
+    public bool AiKernelAvailable { get; set; }
+
+    public List<AdminChatAiModelOption> Models { get; set; } = new();
+}
+
+internal sealed class AdminChatAvailableModulesData
+{
+    public List<AdminChatAvailableModule> Modules { get; set; } = new();
 }
 
 public sealed record AdminChatStreamResult(

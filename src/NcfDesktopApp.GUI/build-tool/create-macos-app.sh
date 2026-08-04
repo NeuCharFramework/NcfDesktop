@@ -26,6 +26,10 @@ APP_NAME="NCF Desktop"
 APP_BUNDLE_ID="com.senparc.ncf.desktop"
 APP_VERSION=$(sed -n 's:.*<Version>\([^<]*\)</Version>.*:\1:p' "$PROJECT_FILE" | head -1)
 APP_VERSION="${APP_VERSION:-0.3.0}"
+APP_BUILD_NUMBER="${NcfDesktopBuildNumber:-$APP_VERSION}"
+if [[ ! "$APP_BUILD_NUMBER" =~ ^[0-9]+([.][0-9]+){0,2}$ ]]; then
+    APP_BUILD_NUMBER="$APP_VERSION"
+fi
 APP_COPYRIGHT="© 2026 Senparc NCF"
 APP_DESCRIPTION="NCF Desktop Application"
 
@@ -61,6 +65,7 @@ show_banner() {
     echo "应用名称: $APP_NAME"
     echo "Bundle ID: $APP_BUNDLE_ID"
     echo "版本: $APP_VERSION"
+    echo "Build: $APP_BUILD_NUMBER"
     echo "输出目录: $OUTPUT_DIR"
     echo ""
 }
@@ -257,7 +262,7 @@ create_info_plist() {
     <key>CFBundleShortVersionString</key>
     <string>$APP_VERSION</string>
     <key>CFBundleVersion</key>
-    <string>$APP_VERSION</string>
+    <string>$APP_BUILD_NUMBER</string>
     <key>LSMinimumSystemVersion</key>
     <string>10.15</string>
     <key>NSHighResolutionCapable</key>

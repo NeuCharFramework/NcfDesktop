@@ -152,7 +152,19 @@ public partial class App : Application
             templateWorkspaceWindow.Closed += (_, _) => templateWorkspaceWindow = null;
             templateWorkspaceWindow.Show(mainWindow);
         };
-        mainWindow.Opened += (_, _) => robotWindow.Show();
+        viewModel.TemplateWorkspaceCreationSucceeded = () =>
+        {
+            templateWorkspaceWindow?.Close();
+            if (mainWindow.IsVisible)
+            {
+                mainWindow.Activate();
+            }
+        };
+        mainWindow.Opened += (_, _) =>
+        {
+            robotWindow.Show();
+            viewModel.StartDesktopAppUpdateMonitoring();
+        };
         mainWindow.Closed += (_, _) =>
             _ = HandleWorkspaceClosedAsync(desktop, mainWindow, robotWindow, viewModel);
         _workspaceWindows.Add(mainWindow);
@@ -185,6 +197,15 @@ public partial class App : Application
 
         try
         {
+            try
+            {
+                await viewModel.StopDesktopAppUpdateMonitoringAsync().ConfigureAwait(true);
+            }
+            catch (Exception ex)
+            {
+                CrashDiagnosticService.ReportHandledException("停止当前工作台桌面更新检查", ex);
+            }
+
             // 即使用户先隐藏了宠物，也要关闭其窗口，让 Closed 统一保存最后位置与大小。
             try
             {

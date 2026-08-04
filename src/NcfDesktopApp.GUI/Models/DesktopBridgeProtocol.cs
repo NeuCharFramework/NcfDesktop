@@ -29,7 +29,10 @@ public sealed record DesktopBridgeCapabilities(
     string EventEndpoint,
     string SnapshotEndpoint,
     bool SupportsAuthorizedSync = false,
-    string? AuthorizedSyncEndpoint = null);
+    string? AuthorizedSyncEndpoint = null,
+    bool SupportsAdminAuthHandoff = false,
+    string? AdminAuthHandoffRequestEndpoint = null,
+    string? AdminAuthHandoffRedeemEndpoint = null);
 
 public sealed record DesktopBridgeProbeResult(
     DesktopBridgeAvailability Availability,
@@ -51,6 +54,26 @@ public sealed record DesktopBridgePairingPollResponse(
     string Status,
     string? SessionToken,
     DateTimeOffset? SessionExpiresAt,
+    string? Message);
+
+public sealed record DesktopAdminAuthHandoff(
+    Guid RequestId,
+    DateTimeOffset ExpiresAt,
+    string ApprovalPath,
+    int PollIntervalMilliseconds,
+    string CodeVerifier);
+
+public sealed record DesktopAdminAuthHandoffCreateResponse(
+    Guid RequestId,
+    DateTimeOffset ExpiresAt,
+    string ApprovalPath,
+    int PollIntervalMilliseconds);
+
+public sealed record DesktopAdminAuthHandoffRedeemResponse(
+    string Status,
+    string? UserName,
+    string? AccessToken,
+    DateTimeOffset? ExpiresUtc,
     string? Message);
 
 public sealed record DesktopActivityMessage(

@@ -301,6 +301,69 @@ public sealed class DesktopBridgeClientTests
         Assert.AreEqual("42", message.ResourceId);
     }
 
+    [TestMethod]
+    public async Task CreateAdminAuthHandoffAsync_SendsDesktopTokenAndChallengeButNotVerifier()
+    {
+        string? body = null;
+        string? desktopToken = null;
+        await using var client = CreateClient(request =>
+        {
+            body = request.Content?.ReadAsStringAsync().GetAwaiter().GetResult();
+            desktopToken = request.Headers.GetValues(DesktopBridgeClient.TokenHeaderName).Single();
+            return JsonResponse("""
+                {
+                  "requestId": "06f6d1d5-0b52-4a4a-a414-ab4d52fcf122",
+                  "expiresAt": "2099-08-04T10:00:00Z",
+                  "approvalPath": "/Admin/DesktopBridge/AuthHandoff?requestId=06f6d1d5-0b52-4a4a-a414-ab4d52fcf122",
+                  "pollIntervalMilliseconds": 750
+                }
+                """);
+        });
+
+        var handoff = await client.CreateAdminAuthHandoffAsync(
+            SiteUrl,
+            Token,
+            "/Admin/Index",
+            "/api/Senparc.Xncf.DesktopBridge/admin-auth-handoff/requests");
+
+        Assert.AreEqual(Token, desktopToken);
+        Assert.IsNotNull(body);
+        StringAssert.Contains(body, "codeChallenge");
+        StringAssert.Contains(body, "/Admin/Index");
+        Assert.IsFalse(body.Contains(handoff.CodeVerifier, StringComparison.Ordinal));
+        Assert.AreEqual(43, handoff.CodeVerifier.Length);
+    }
+
+    [TestMethod]
+    public async Task RedeemAdminAuthHandoffAsync_SendsMemoryOnlyVerifierAndReadsToken()
+    {
+        string? body = null;
+        await using var client = CreateClient(request =>
+        {
+            body = request.Content?.ReadAsStringAsync().GetAwaiter().GetResult();
+            return JsonResponse("""
+                {
+                  "status": "approved",
+                  "userName": "admin",
+                  "accessToken": "handoff-jwt",
+                  "expiresUtc": "2099-08-04T10:00:00Z"
+                }
+                """);
+        });
+        var handoff = new DesktopAdminAuthHandoff(
+            Guid.Parse("06f6d1d5-0b52-4a4a-a414-ab4d52fcf122"),
+            DateTimeOffset.Parse("2099-08-04T10:00:00Z"),
+            "/Admin/DesktopBridge/AuthHandoff",
+            750,
+            "memory-only-verifier");
+
+        var result = await client.RedeemAdminAuthHandoffAsync(SiteUrl, Token, handoff);
+
+        Assert.AreEqual("approved", result.Status);
+        Assert.AreEqual("handoff-jwt", result.AccessToken);
+        StringAssert.Contains(body, "memory-only-verifier");
+    }
+
     private static DesktopBridgeClient CreateClient(Func<HttpRequestMessage, HttpResponseMessage> responseFactory)
     {
         var httpClient = new HttpClient(new StubHttpMessageHandler(responseFactory))

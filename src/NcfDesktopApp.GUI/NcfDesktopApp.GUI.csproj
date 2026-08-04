@@ -11,6 +11,9 @@
     <TargetFramework>net8.0</TargetFramework>
     <RuntimeIdentifiers>win-x64;win-arm64;osx-x64;osx-arm64;linux-x64;linux-arm64</RuntimeIdentifiers>
     <Version>0.7.0</Version>
+    <!-- Azure 发布时注入 Build.BuildId，使“设置”中的版本与下载文件名/Release 标签一致。 -->
+    <InformationalVersion Condition="'$(NcfDesktopBuildNumber)' != ''">$(Version)-build$(NcfDesktopBuildNumber)</InformationalVersion>
+    <IncludeSourceRevisionInInformationalVersion Condition="'$(NcfDesktopBuildNumber)' != ''">false</IncludeSourceRevisionInInformationalVersion>
     <PackageReleaseNotes>
       [2026-07-24] v0.1.0 增强桌面端更新、下载反馈与窗口兼容性
       1、动态测速选择 GitHub 与镜像更新源，并在下载失败时自动切换备用源

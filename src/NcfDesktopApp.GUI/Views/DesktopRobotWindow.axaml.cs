@@ -38,6 +38,7 @@ public partial class DesktopRobotWindow : Window
     private const double CardHeight = 138;
     private const double CardOverlap = 46;
     private const double WindowPadding = 16;
+    private const double CompactStatusMaxWidth = 110;
     private const double WheelScaleStep = .1;
 
     private readonly DispatcherTimer _globalPointerTimer = new()
@@ -49,13 +50,16 @@ public partial class DesktopRobotWindow : Window
         Interval = TimeSpan.FromMilliseconds(500)
     };
     private MainWindowViewModel? _workspaceViewModel;
+    private DesktopRobotViewModel? _subscribedRobot;
     private bool _isOpened;
     private bool _isApplyingScale;
+    private bool _isCardExpanded;
     private double _currentScale = DesktopRobotPlacementPolicy.MinimumScale;
 
     public DesktopRobotWindow()
     {
         InitializeComponent();
+        DataContextChanged += OnDataContextChanged;
         _globalPointerTimer.Tick += (_, _) => UpdateGlobalGaze();
         _placementSaveTimer.Tick += (_, _) =>
         {
@@ -184,7 +188,7 @@ public partial class DesktopRobotWindow : Window
             var oldBottomGap = screen == null ? 0 : screen.WorkingArea.Bottom - (Position.Y + oldSize.Height);
 
             _currentScale = normalizedScale;
-            var layout = CalculateLayout(normalizedScale);
+            var layout = CalculateLayout(normalizedScale, _isCardExpanded, GetCompactStatusWidth());
             Width = layout.WindowWidth;
             Height = layout.WindowHeight;
             RootSurface.Width = layout.RootWidth;
@@ -236,21 +240,31 @@ public partial class DesktopRobotWindow : Window
     private static PixelSize GetWindowPixelSize(Screen screen, double scale)
     {
         var scaling = screen.Scaling > 0 ? screen.Scaling : 1;
-        var layout = CalculateLayout(scale);
+        // 位置恢复和屏幕边界始终按完整信息卡计算，确保收起后再展开不会越出屏幕。
+        var layout = CalculateLayout(scale, isCardExpanded: true, compactStatusWidth: 0);
         return new PixelSize(
             (int)Math.Ceiling(layout.WindowWidth * scaling),
             (int)Math.Ceiling(layout.WindowHeight * scaling));
     }
 
-    private static DesktopRobotLayout CalculateLayout(double scale)
+    internal static DesktopRobotLayout CalculateLayout(
+        double scale,
+        bool isCardExpanded,
+        double compactStatusWidth)
     {
         var mascotSize = MascotSurfaceSize * scale;
         var cardLeft = MascotCircleRight * scale - CardOverlap;
-        var rootWidth = Math.Max(mascotSize, cardLeft + CardWidth);
+        var circleRight = MascotCircleRight * scale;
+        var statusLeft = circleRight + 6;
+        var safeStatusWidth = double.IsFinite(compactStatusWidth)
+            ? Math.Max(0, compactStatusWidth)
+            : 0;
+        var expandedRootWidth = Math.Max(mascotSize, cardLeft + CardWidth);
+        var collapsedRootWidth = Math.Max(mascotSize, statusLeft + safeStatusWidth);
+        var rootWidth = isCardExpanded ? expandedRootWidth : collapsedRootWidth;
         var rootHeight = Math.Max(mascotSize, CardHeight);
         var mascotTop = (rootHeight - mascotSize) / 2;
         var cardTop = (rootHeight - CardHeight) / 2;
-        var circleRight = MascotCircleRight * scale;
 
         return new DesktopRobotLayout(
             rootWidth,
@@ -260,10 +274,73 @@ public partial class DesktopRobotWindow : Window
             mascotTop,
             cardLeft,
             cardTop,
-            circleRight + 6,
+            statusLeft,
             cardTop + 10,
             circleRight - 10,
             cardTop + 4);
+    }
+
+    private double GetCompactStatusWidth()
+    {
+        CompactStatus.Measure(new Size(CompactStatusMaxWidth, double.PositiveInfinity));
+        var desiredWidth = CompactStatus.DesiredSize.Width;
+        return double.IsFinite(desiredWidth) && desiredWidth > 0
+            ? Math.Min(desiredWidth, CompactStatusMaxWidth)
+            : CompactStatusMaxWidth;
+    }
+
+    private void UpdateWindowExtent()
+    {
+        var layout = CalculateLayout(_currentScale, _isCardExpanded, GetCompactStatusWidth());
+        Width = layout.WindowWidth;
+        Height = layout.WindowHeight;
+        RootSurface.Width = layout.RootWidth;
+        RootSurface.Height = layout.RootHeight;
+    }
+
+    private void SetCardExpanded(bool isExpanded)
+    {
+        if (_isCardExpanded == isExpanded)
+        {
+            return;
+        }
+
+        _isCardExpanded = isExpanded;
+        ExpandedCard.IsVisible = isExpanded;
+        HideRobotButton.IsVisible = isExpanded;
+        HoverBridge.IsVisible = isExpanded;
+        UpdateWindowExtent();
+    }
+
+    private void OnDataContextChanged(object? sender, EventArgs e)
+    {
+        if (_subscribedRobot != null)
+        {
+            _subscribedRobot.PropertyChanged -= Robot_OnPropertyChanged;
+        }
+
+        _subscribedRobot = Robot;
+        if (_subscribedRobot != null)
+        {
+            _subscribedRobot.PropertyChanged += Robot_OnPropertyChanged;
+        }
+    }
+
+    private void Robot_OnPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (!_isOpened || _isCardExpanded || e.PropertyName != nameof(DesktopRobotViewModel.StateText))
+        {
+            return;
+        }
+
+        // 等绑定文本完成布局后再缩放原生窗口，避免新状态被旧宽度裁切。
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (_isOpened && !_isCardExpanded)
+            {
+                UpdateWindowExtent();
+            }
+        }, DispatcherPriority.Background);
     }
 
     private void WorkspaceViewModel_OnPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -337,6 +414,12 @@ public partial class DesktopRobotWindow : Window
         {
             workspaceViewModel.PropertyChanged -= WorkspaceViewModel_OnPropertyChanged;
         }
+
+        if (_subscribedRobot != null)
+        {
+            _subscribedRobot.PropertyChanged -= Robot_OnPropertyChanged;
+            _subscribedRobot = null;
+        }
     }
 
     private void RootBorder_OnPointerPressed(object? sender, PointerPressedEventArgs e)
@@ -351,8 +434,7 @@ public partial class DesktopRobotWindow : Window
 
     private void RevealSurface_OnPointerEntered(object? sender, PointerEventArgs e)
     {
-        ExpandedCard.IsVisible = true;
-        HideRobotButton.IsVisible = true;
+        SetCardExpanded(true);
         PromoteAboveOtherAlwaysOnTopWindows();
     }
 
@@ -376,8 +458,7 @@ public partial class DesktopRobotWindow : Window
         {
             if (!RootSurface.IsPointerOver)
             {
-                ExpandedCard.IsVisible = false;
-                HideRobotButton.IsVisible = false;
+                SetCardExpanded(false);
                 Robot?.ResetGaze();
             }
         }, DispatcherPriority.Input);
@@ -500,7 +581,7 @@ public partial class DesktopRobotWindow : Window
 
     private DesktopRobotViewModel? Robot => DataContext as DesktopRobotViewModel;
 
-    private sealed record DesktopRobotLayout(
+    internal sealed record DesktopRobotLayout(
         double RootWidth,
         double RootHeight,
         double WindowWidth,

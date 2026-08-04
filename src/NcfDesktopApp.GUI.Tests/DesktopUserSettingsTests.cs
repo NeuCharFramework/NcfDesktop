@@ -1,4 +1,5 @@
 using NcfDesktopApp.GUI.Services;
+using NcfDesktopApp.GUI.Views;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace NcfDesktopApp.GUI.Tests;
@@ -68,5 +69,25 @@ public sealed class DesktopUserSettingsTests
             windowPadding: 16);
 
         Assert.AreEqual(4.0, maximumScale, .001);
+    }
+
+    [TestMethod]
+    public void DesktopRobotWindow_CollapsedLayout_ReleasesHiddenCardArea()
+    {
+        var expanded = DesktopRobotWindow.CalculateLayout(
+            scale: 1,
+            isCardExpanded: true,
+            compactStatusWidth: 64);
+        var collapsed = DesktopRobotWindow.CalculateLayout(
+            scale: 1,
+            isCardExpanded: false,
+            compactStatusWidth: 64);
+
+        Assert.AreEqual(360, expanded.WindowWidth, .001);
+        Assert.AreEqual(174, collapsed.WindowWidth, .001);
+        Assert.IsTrue(collapsed.WindowWidth < expanded.WindowWidth);
+        Assert.AreEqual(expanded.WindowHeight, collapsed.WindowHeight, .001);
+        Assert.AreEqual(expanded.MascotTop, collapsed.MascotTop, .001);
+        Assert.AreEqual(expanded.CardLeft, collapsed.CardLeft, .001);
     }
 }

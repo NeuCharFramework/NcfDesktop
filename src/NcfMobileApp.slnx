@@ -1,0 +1,7 @@
+<Solution>
+  <Folder Name="/Mobile/">
+    <Project Path="NcfMobileApp.Core/NcfMobileApp.Core.csproj" />
+    <Project Path="NcfMobileApp.Core.Tests/NcfMobileApp.Core.Tests.csproj" />
+    <Project Path="NcfMobileApp.iOS/NcfMobileApp.iOS.csproj" />
+  </Folder>
+</Solution>

@@ -16,6 +16,9 @@
     修改标识：Senparc - 20260804
     修改描述：v0.6.0 统一本地语音、朗读及桌面机器人设置状态
 
+    修改标识：Senparc - 20260804
+    修改描述：在设置中显示 GUI 当前版本并检查桌面应用更新
+
 ----------------------------------------------------------------*/
 using System;
 using System.Collections.Generic;
@@ -54,6 +57,20 @@ public partial class MainWindowViewModel : ViewModelBase
 
     [ObservableProperty]
     private string _platformInfo = GetPlatformInfo();
+
+    public string DesktopAppCurrentVersion { get; } = DesktopUpdateService.GetCurrentVersion();
+
+    [ObservableProperty]
+    private string _desktopAppLatestVersion = "尚未检查";
+
+    [ObservableProperty]
+    private string _desktopAppUpdateStatus = "程序启动后会自动检查，并每小时从 NCF 官网检查一次。";
+
+    [ObservableProperty]
+    private string _desktopAppUpdateStatusColor = "#6C757D";
+
+    [ObservableProperty]
+    private bool _isDesktopAppUpdateChecking;
 
     [ObservableProperty]
     private string _latestVersion = "检查中...";
@@ -132,6 +149,13 @@ public partial class MainWindowViewModel : ViewModelBase
     private string _templateWorkspaceName = "MyNcfWorkspace";
 
     [ObservableProperty]
+    private TemplateWorkspaceConfigurationSourceKind _templateConfigurationSourceKind =
+        TemplateWorkspaceConfigurationSourceKind.TemplateDefault;
+
+    [ObservableProperty]
+    private string _templateWorkspaceConfigurationSourcePath = string.Empty;
+
+    [ObservableProperty]
     private string _templateCreationStatus = "使用 NuGet.org 最新 Senparc.NCF.Template 创建，不自动 restore。";
 
     [ObservableProperty]
@@ -202,6 +226,8 @@ public partial class MainWindowViewModel : ViewModelBase
 
     public Action? ShowTemplateWorkspaceRequested { get; set; }
 
+    public Action? TemplateWorkspaceCreationSucceeded { get; set; }
+
     public DesktopRobotViewModel Robot { get; } = new();
 
     public ObservableCollection<string> RecentNcfPaths { get; } = new();
@@ -209,6 +235,42 @@ public partial class MainWindowViewModel : ViewModelBase
     public IReadOnlyList<string> EnvironmentOptions { get; } = new[] { "Production", "Development" };
 
     public string ManagedRuntimePath => NcfService.NcfRuntimePath;
+
+    public bool UsesTemplateDefaultConfiguration
+    {
+        get => TemplateConfigurationSourceKind == TemplateWorkspaceConfigurationSourceKind.TemplateDefault;
+        set
+        {
+            if (value)
+            {
+                TemplateConfigurationSourceKind = TemplateWorkspaceConfigurationSourceKind.TemplateDefault;
+            }
+        }
+    }
+
+    public bool UsesManagedRuntimeConfiguration
+    {
+        get => TemplateConfigurationSourceKind == TemplateWorkspaceConfigurationSourceKind.ManagedRuntime;
+        set
+        {
+            if (value)
+            {
+                TemplateConfigurationSourceKind = TemplateWorkspaceConfigurationSourceKind.ManagedRuntime;
+            }
+        }
+    }
+
+    public bool UsesOtherWorkspaceConfiguration
+    {
+        get => TemplateConfigurationSourceKind == TemplateWorkspaceConfigurationSourceKind.OtherWorkspace;
+        set
+        {
+            if (value)
+            {
+                TemplateConfigurationSourceKind = TemplateWorkspaceConfigurationSourceKind.OtherWorkspace;
+            }
+        }
+    }
 
     public bool IsManagedTargetMode => LaunchTargetKind == NcfLaunchTargetKind.ManagedPublished;
 
@@ -392,6 +454,36 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
+    partial void OnTemplateConfigurationSourceKindChanged(
+        TemplateWorkspaceConfigurationSourceKind value)
+    {
+        OnPropertyChanged(nameof(UsesTemplateDefaultConfiguration));
+        OnPropertyChanged(nameof(UsesManagedRuntimeConfiguration));
+        OnPropertyChanged(nameof(UsesOtherWorkspaceConfiguration));
+        SelectTemplateWorkspaceConfigurationSourceCommand.NotifyCanExecuteChanged();
+
+        TemplateCreationStatus = value switch
+        {
+            TemplateWorkspaceConfigurationSourceKind.ManagedRuntime =>
+                "创建后将复制当前托管版本的 NCF 配置文件。",
+            TemplateWorkspaceConfigurationSourceKind.OtherWorkspace =>
+                "创建后将复制所选工作区的 NCF 配置文件。",
+            _ => "使用模板默认配置，不复制现有工作区中的配置文件。"
+        };
+        if (!_suppressDesktopSettingsSave)
+        {
+            SaveDesktopSettings();
+        }
+    }
+
+    partial void OnTemplateWorkspaceConfigurationSourcePathChanged(string value)
+    {
+        if (!_suppressDesktopSettingsSave)
+        {
+            SaveDesktopSettings();
+        }
+    }
+
     partial void OnAspNetCoreEnvironmentChanged(string value)
     {
         OnPropertyChanged(nameof(LaunchConfigurationSummary));
@@ -489,6 +581,15 @@ public partial class MainWindowViewModel : ViewModelBase
     #region 私有字段
     
     private readonly NcfService _ncfService;
+    private readonly DesktopUpdateService _desktopUpdateService;
+    private readonly CancellationTokenSource _desktopUpdateMonitorCts = new();
+    private Task? _desktopUpdateMonitorTask;
+    private int _desktopUpdateMonitoringStopped;
+    private static readonly TimeSpan DesktopUpdateCheckInterval = TimeSpan.FromHours(1);
+    private static readonly SemaphoreSlim DesktopUpdateAutomaticCheckGate = new(1, 1);
+    private static readonly object DesktopUpdatePromptSync = new();
+    private static long _lastAutomaticDesktopUpdateCheckUtcTicks;
+    private static string? _lastPromptedDesktopUpdateVersion;
     private readonly DesktopBridgeClient _desktopBridgeClient;
     private readonly AdminChatClient _adminChatClient;
     private readonly TemplateWorkspaceService _templateWorkspaceService;
@@ -524,8 +625,11 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         var httpClient = new HttpClient(CreateDesktopHttpHandler(), disposeHandler: true);
         _ncfService = new NcfService(httpClient);
+        _desktopUpdateService = new DesktopUpdateService(httpClient);
         _webView2Service = new WebView2Service(httpClient);
-        var bridgeHttpClient = new HttpClient(CreateDesktopHttpHandler(allowAutoRedirect: false), disposeHandler: true)
+        var bridgeHttpClient = new HttpClient(
+            CreateDesktopHttpHandler(allowAutoRedirect: false, useCookies: false),
+            disposeHandler: true)
         {
             Timeout = Timeout.InfiniteTimeSpan
         };
@@ -535,7 +639,9 @@ public partial class MainWindowViewModel : ViewModelBase
         _desktopBridgeClient.AuthorizedSyncReceived += OnDesktopAuthorizedSyncReceived;
         _desktopBridgeClient.AuthorizedSyncAuthorizationFailed += OnDesktopAuthorizedSyncAuthorizationFailed;
         _desktopBridgeClient.SessionRevoked += OnDesktopBridgeSessionRevoked;
-        _adminChatClient = new AdminChatClient(new HttpClient(CreateDesktopHttpHandler(allowAutoRedirect: false), disposeHandler: true)
+        _adminChatClient = new AdminChatClient(new HttpClient(
+            CreateDesktopHttpHandler(allowAutoRedirect: false, useCookies: false),
+            disposeHandler: true)
         {
             Timeout = Timeout.InfiniteTimeSpan
         });
@@ -560,13 +666,16 @@ public partial class MainWindowViewModel : ViewModelBase
     /// <summary>
     /// 本机 HTTPS（如 ASP.NET Core 开发证书）校验失败会导致镜像元数据拉取失败并误回退 GitHub；对回环地址放宽证书校验。
     /// </summary>
-    private static HttpMessageHandler CreateDesktopHttpHandler(bool allowAutoRedirect = true)
+    private static HttpMessageHandler CreateDesktopHttpHandler(
+        bool allowAutoRedirect = true,
+        bool useCookies = true)
     {
         var handler = new HttpClientHandler
         {
             // DesktopBridge and Admin JWT headers must never follow a redirect
             // to another origin. Download/update clients keep normal redirects.
-            AllowAutoRedirect = allowAutoRedirect
+            AllowAutoRedirect = allowAutoRedirect,
+            UseCookies = useCookies
         };
         handler.ServerCertificateCustomValidationCallback = static (request, _, _, sslPolicyErrors) =>
         {
@@ -616,6 +725,8 @@ public partial class MainWindowViewModel : ViewModelBase
             ExternalNcfPath = ExternalNcfPath,
             RemoteSiteUrl = RemoteSiteUrl,
             TemplateWorkspaceParentPath = TemplateWorkspaceParentPath,
+            TemplateWorkspaceConfigurationSourceKind = TemplateConfigurationSourceKind,
+            TemplateWorkspaceConfigurationSourcePath = TemplateWorkspaceConfigurationSourcePath,
             RecentNcfPaths = RecentNcfPaths.ToList(),
             AspNetCoreEnvironment = AspNetCoreEnvironment,
             VoiceModelId = SelectedVoiceModel?.Id ?? string.Empty,
@@ -1005,8 +1116,39 @@ public partial class MainWindowViewModel : ViewModelBase
     }
 
     [RelayCommand(CanExecute = nameof(CanChangeLaunchTarget))]
+    private async Task SelectTemplateWorkspaceConfigurationSource()
+    {
+        try
+        {
+            if (Avalonia.Application.Current?.ApplicationLifetime is not IClassicDesktopStyleApplicationLifetime desktop
+                || desktop.MainWindow?.StorageProvider is not { CanPickFolder: true } storageProvider)
+            {
+                AddLog("❌ 当前平台无法打开目录选择器，请直接粘贴配置来源工作区路径。");
+                return;
+            }
+
+            var folders = await storageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+            {
+                Title = "选择要复制配置的 NCF 工作区",
+                AllowMultiple = false
+            });
+            var selectedPath = folders.FirstOrDefault()?.TryGetLocalPath();
+            if (!string.IsNullOrWhiteSpace(selectedPath))
+            {
+                TemplateWorkspaceConfigurationSourcePath = selectedPath;
+                TemplateCreationStatus = "配置来源已选择；创建前将验证 NCF 入口和配置文件。";
+            }
+        }
+        catch (Exception ex)
+        {
+            AddLog($"❌ 选择配置来源工作区失败: {ex.Message}");
+        }
+    }
+
+    [RelayCommand(CanExecute = nameof(CanChangeLaunchTarget))]
     private async Task CreateWorkspaceFromTemplate()
     {
+        var creationSucceeded = false;
         IsOperationInProgress = true;
         TemplateCreationStatus = "正在安装模板并创建工作区…";
         try
@@ -1015,6 +1157,10 @@ public partial class MainWindowViewModel : ViewModelBase
             var result = await _templateWorkspaceService.CreateAsync(
                 TemplateWorkspaceParentPath,
                 TemplateWorkspaceName,
+                TemplateConfigurationSourceKind,
+                TemplateConfigurationSourceKind == TemplateWorkspaceConfigurationSourceKind.ManagedRuntime
+                    ? NcfService.NcfRuntimePath
+                    : TemplateWorkspaceConfigurationSourcePath,
                 output => AddLog($"📦 {output}"),
                 _cancellationTokenSource.Token);
 
@@ -1024,9 +1170,19 @@ public partial class MainWindowViewModel : ViewModelBase
             _suppressDesktopSettingsSave = false;
             ApplyResolvedLaunchTarget(result.LaunchTarget);
             AddRecentNcfPath(result.WorkspacePath);
+            _suppressDesktopSettingsSave = true;
+            SelectedRecentNcfPath = result.WorkspacePath;
+            _suppressDesktopSettingsSave = false;
             SaveDesktopSettings();
-            TemplateCreationStatus = $"已创建：{result.WorkspacePath}";
+            TemplateCreationStatus = result.ConfigurationCopyResult.HasImportedFiles
+                ? $"已创建：{result.WorkspacePath}；已从{result.ConfigurationCopyResult.SourceDescription}复制 " +
+                  string.Join("、", result.ConfigurationCopyResult.CopiedFiles)
+                : $"已创建：{result.WorkspacePath}；保留模板默认配置";
             AddLog($"✅ 已使用 {TemplateWorkspaceService.TemplatePackageId} 创建源码工作区（未执行 restore）");
+            TargetValidationMessage = "新工作区已创建并选中。下一步请点击“启动目标”运行。";
+            CurrentTabIndex = 0;
+            AddLog("👉 新工作区已切换为当前目标，请点击“启动目标”开始运行。");
+            creationSucceeded = true;
         }
         catch (OperationCanceledException)
         {
@@ -1040,6 +1196,10 @@ public partial class MainWindowViewModel : ViewModelBase
         finally
         {
             IsOperationInProgress = false;
+            if (creationSucceeded)
+            {
+                TemplateWorkspaceCreationSucceeded?.Invoke();
+            }
         }
     }
 
@@ -1053,6 +1213,182 @@ public partial class MainWindowViewModel : ViewModelBase
     private void ShowWorkspaceSettings()
     {
         ShowWorkspaceSettingsRequested?.Invoke();
+    }
+
+    [RelayCommand]
+    private Task CheckDesktopAppUpdateAsync()
+    {
+        return CheckDesktopAppUpdateCoreAsync(
+            showUpdatePrompt: true,
+            CancellationToken.None);
+    }
+
+    public void StartDesktopAppUpdateMonitoring()
+    {
+        if (_desktopUpdateMonitorTask != null ||
+            Volatile.Read(ref _desktopUpdateMonitoringStopped) != 0)
+        {
+            return;
+        }
+
+        _desktopUpdateMonitorTask = MonitorDesktopAppUpdatesAsync(_desktopUpdateMonitorCts.Token);
+    }
+
+    public async Task StopDesktopAppUpdateMonitoringAsync()
+    {
+        if (Interlocked.Exchange(ref _desktopUpdateMonitoringStopped, 1) != 0)
+        {
+            return;
+        }
+
+        _desktopUpdateMonitorCts.Cancel();
+        if (_desktopUpdateMonitorTask != null)
+        {
+            try
+            {
+                await _desktopUpdateMonitorTask.ConfigureAwait(true);
+            }
+            catch (OperationCanceledException)
+            {
+                // 正常关闭工作台时终止每小时检查。
+            }
+        }
+
+        _desktopUpdateMonitorCts.Dispose();
+    }
+
+    private async Task MonitorDesktopAppUpdatesAsync(CancellationToken cancellationToken)
+    {
+        while (true)
+        {
+            await CheckDesktopAppUpdateAutomaticallyAsync(cancellationToken).ConfigureAwait(true);
+
+            var lastCheckTicks = Interlocked.Read(ref _lastAutomaticDesktopUpdateCheckUtcTicks);
+            var nextCheckTicks = lastCheckTicks + DesktopUpdateCheckInterval.Ticks;
+            var delayTicks = nextCheckTicks - DateTime.UtcNow.Ticks;
+            var delay = lastCheckTicks > 0 && delayTicks > 0
+                ? TimeSpan.FromTicks(delayTicks)
+                : TimeSpan.FromSeconds(1);
+            await Task.Delay(delay, cancellationToken).ConfigureAwait(true);
+        }
+    }
+
+    private async Task CheckDesktopAppUpdateAutomaticallyAsync(CancellationToken cancellationToken)
+    {
+        if (!await DesktopUpdateAutomaticCheckGate
+                .WaitAsync(0, cancellationToken)
+                .ConfigureAwait(true))
+        {
+            return;
+        }
+
+        try
+        {
+            var nowTicks = DateTime.UtcNow.Ticks;
+            var lastCheckTicks = Interlocked.Read(ref _lastAutomaticDesktopUpdateCheckUtcTicks);
+            if (lastCheckTicks > 0 &&
+                nowTicks - lastCheckTicks < DesktopUpdateCheckInterval.Ticks)
+            {
+                return;
+            }
+
+            // 多工作台共用同一进程；在发起请求前记录时间，确保每小时最多请求一次。
+            Interlocked.Exchange(ref _lastAutomaticDesktopUpdateCheckUtcTicks, nowTicks);
+            await CheckDesktopAppUpdateCoreAsync(
+                    showUpdatePrompt: true,
+                    cancellationToken)
+                .ConfigureAwait(true);
+        }
+        finally
+        {
+            DesktopUpdateAutomaticCheckGate.Release();
+        }
+    }
+
+    private async Task CheckDesktopAppUpdateCoreAsync(
+        bool showUpdatePrompt,
+        CancellationToken cancellationToken)
+    {
+        if (IsDesktopAppUpdateChecking)
+        {
+            return;
+        }
+
+        IsDesktopAppUpdateChecking = true;
+        DesktopAppLatestVersion = "检查中...";
+        DesktopAppUpdateStatus = "正在检查 NCF Desktop 新版本...";
+        DesktopAppUpdateStatusColor = "#2563EB";
+
+        try
+        {
+            var result = await _desktopUpdateService
+                .CheckForUpdateAsync(DesktopAppCurrentVersion, cancellationToken)
+                .ConfigureAwait(true);
+            DesktopAppLatestVersion = $"v{result.LatestVersion}";
+            DesktopAppUpdateStatus = result.IsUpdateAvailable
+                ? $"发现新版本 v{result.LatestVersion}（检查源：{result.SourceName}）。"
+                : $"当前已是最新版本（检查源：{result.SourceName}，{DateTime.Now:HH:mm}）。";
+            DesktopAppUpdateStatusColor = result.IsUpdateAvailable ? "#D97706" : "#059669";
+
+            if (result.IsUpdateAvailable &&
+                showUpdatePrompt &&
+                TryMarkDesktopUpdatePrompted(result.LatestVersion))
+            {
+                var openDownloadPage = await ShowConfirmDialogAsync(
+                        "发现 NCF Desktop 新版本",
+                        $"NCF Desktop 有新版本可用。\n\n" +
+                        $"当前版本：v{result.CurrentVersion}\n" +
+                        $"最新版本：v{result.LatestVersion}\n\n" +
+                        $"下载地址：{DesktopUpdateService.DownloadPageUrl}\n\n" +
+                        "下载页会自动推荐适合当前系统和 CPU 架构的安装包。",
+                        "前往下载",
+                        "稍后",
+                        new SolidColorBrush(Color.FromRgb(37, 99, 235)))
+                    .ConfigureAwait(true);
+                if (openDownloadPage)
+                {
+                    OpenDesktopDownloadPage();
+                }
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // 工作台关闭时取消正在进行的检查，不将其显示为网络错误。
+        }
+        catch (Exception ex)
+        {
+            DesktopAppLatestVersion = "暂不可用";
+            DesktopAppUpdateStatus = "暂时无法检查更新；仍可前往 NCF 官网查看下载。";
+            DesktopAppUpdateStatusColor = "#DC2626";
+            AddLog($"⚠️ NCF Desktop 更新检查失败: {ex.Message}");
+        }
+        finally
+        {
+            IsDesktopAppUpdateChecking = false;
+        }
+    }
+
+    private static bool TryMarkDesktopUpdatePrompted(string latestVersion)
+    {
+        lock (DesktopUpdatePromptSync)
+        {
+            if (string.Equals(
+                    _lastPromptedDesktopUpdateVersion,
+                    latestVersion,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            _lastPromptedDesktopUpdateVersion = latestVersion;
+            return true;
+        }
+    }
+
+    [RelayCommand]
+    private void OpenDesktopDownloadPage()
+    {
+        OpenBrowser(DesktopUpdateService.DownloadPageUrl);
     }
 
     [RelayCommand]
@@ -1108,6 +1444,7 @@ public partial class MainWindowViewModel : ViewModelBase
         UseRemoteTargetCommand.NotifyCanExecuteChanged();
         ValidateRemoteTargetCommand.NotifyCanExecuteChanged();
         SelectTemplateWorkspaceParentCommand.NotifyCanExecuteChanged();
+        SelectTemplateWorkspaceConfigurationSourceCommand.NotifyCanExecuteChanged();
         CreateWorkspaceFromTemplateCommand.NotifyCanExecuteChanged();
     }
 
@@ -1213,7 +1550,12 @@ public partial class MainWindowViewModel : ViewModelBase
     /// <summary>
     /// 显示确认对话框
     /// </summary>
-    private async Task<bool> ShowConfirmDialogAsync(string title, string message, string okButtonText = "确定", string cancelButtonText = "取消")
+    private async Task<bool> ShowConfirmDialogAsync(
+        string title,
+        string message,
+        string okButtonText = "确定",
+        string cancelButtonText = "取消",
+        IBrush? okButtonBackground = null)
     {
         if (Avalonia.Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
@@ -1225,7 +1567,7 @@ public partial class MainWindowViewModel : ViewModelBase
                     Content = okButtonText,
                     Width = 100,
                     Height = 35,
-                    Background = Brushes.Red,
+                    Background = okButtonBackground ?? Brushes.Red,
                     Foreground = Brushes.White,
                     HorizontalAlignment = HorizontalAlignment.Center,
                     HorizontalContentAlignment = HorizontalAlignment.Center
@@ -1353,6 +1695,13 @@ public partial class MainWindowViewModel : ViewModelBase
                 TemplateWorkspaceParentPath = string.IsNullOrWhiteSpace(desktopSettings.TemplateWorkspaceParentPath)
                     ? Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments)
                     : desktopSettings.TemplateWorkspaceParentPath;
+                TemplateConfigurationSourceKind = Enum.IsDefined(
+                    typeof(TemplateWorkspaceConfigurationSourceKind),
+                    desktopSettings.TemplateWorkspaceConfigurationSourceKind)
+                    ? desktopSettings.TemplateWorkspaceConfigurationSourceKind
+                    : TemplateWorkspaceConfigurationSourceKind.TemplateDefault;
+                TemplateWorkspaceConfigurationSourcePath =
+                    desktopSettings.TemplateWorkspaceConfigurationSourcePath ?? string.Empty;
                 AspNetCoreEnvironment = string.Equals(
                     desktopSettings.AspNetCoreEnvironment,
                     "Development",
@@ -2459,6 +2808,7 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         BrowserNavigationStatus = "已加载";
         AddLog($"✅ 加载完成: {url}");
+        HandleAdminWebViewNavigation(url);
     }
 
     private async Task NavigateToBrowserAsync(string url)

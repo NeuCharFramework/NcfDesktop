@@ -12,7 +12,9 @@
 ----------------------------------------------------------------*/
 
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Linq;
 using System.Text;
 using System.Threading;
@@ -21,6 +23,7 @@ using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using NcfDesktopApp.GUI.Models;
+using NcfDesktopApp.GUI.Services;
 
 namespace NcfDesktopApp.GUI.ViewModels;
 
@@ -50,6 +53,9 @@ public partial class MainWindowViewModel
     [ObservableProperty]
     private AdminChatSessionSummary? _selectedAdminChatSession;
 
+    [ObservableProperty]
+    private AdminChatAiModelOption? _selectedAdminChatAiModel;
+
     private DesktopBridgeCapabilities? _desktopBridgeCapabilities;
     private readonly SemaphoreSlim _adminChatRefreshLock = new(1, 1);
     private int _optimisticMessageId;
@@ -60,10 +66,38 @@ public partial class MainWindowViewModel
     private int _pendingStreamingGeneration;
     private int _streamingGeneration;
     private int _streamingChunkFlushScheduled;
+    private readonly Dictionary<int, int> _adminChatSessionModelIds = new();
+    private int _adminWebHandoffInProgress;
+    private CancellationTokenSource? _adminWebHandoffCancellation;
+    private bool _suppressAdminWebHandoffUntilWebLogin;
+    private DateTimeOffset _nextAdminWebHandoffAttemptUtc;
 
     public ObservableCollection<AdminChatSessionSummary> AdminChatSessions { get; } = new();
 
     public ObservableCollection<AdminChatMessage> AdminChatMessages { get; } = new();
+
+    public ObservableCollection<AdminChatAiModelOption> AdminChatAiModelOptions { get; } = new();
+
+    public ObservableCollection<AdminChatModuleOption> AdminChatModuleOptions { get; } = new();
+
+    public bool HasAdminChatModuleOptions => AdminChatModuleOptions.Count > 0;
+
+    public bool HasSelectedAdminChatSession => SelectedAdminChatSession != null;
+
+    public string AdminChatSelectedModelDescription =>
+        SelectedAdminChatAiModel?.Description ?? "使用系统默认 SenparcAiSetting。";
+
+    public string AdminChatModuleSelectionText
+    {
+        get
+        {
+            var associatedCount = AdminChatModuleOptions.Count(option => option.IsAssociated);
+            var changedCount = AdminChatModuleOptions.Count(option => option.IsSelected != option.IsAssociated);
+            return SelectedAdminChatSession == null
+                ? $"新会话 XNCF 模块（{AdminChatModuleOptions.Count(option => option.IsSelected)}）"
+                : $"XNCF 模块（已关联 {associatedCount}，待应用 {changedCount}）";
+        }
+    }
 
     public bool IsAdminLoginVisible => IsDesktopBridgeAvailableForChat && !IsAdminAuthenticated;
 
@@ -131,10 +165,36 @@ public partial class MainWindowViewModel
 
     partial void OnSelectedAdminChatSessionChanged(AdminChatSessionSummary? value)
     {
+        OnPropertyChanged(nameof(HasSelectedAdminChatSession));
+        OnPropertyChanged(nameof(AdminChatModuleSelectionText));
+        DeleteAdminChatSessionCommand.NotifyCanExecuteChanged();
+        ApplyAdminChatModulesCommand.NotifyCanExecuteChanged();
+
+        var modelId = value != null && _adminChatSessionModelIds.TryGetValue(value.Id, out var savedModelId)
+            ? savedModelId
+            : 0;
+        SelectedAdminChatAiModel = AdminChatAiModelOptions.FirstOrDefault(model => model.Id == modelId) ??
+                                   AdminChatAiModelOptions.FirstOrDefault();
+
         if (value != null && IsAdminChatActive)
         {
-            _ = LoadAdminChatMessagesAsync(value.Id);
+            _ = LoadAdminChatSessionAsync(value.Id);
         }
+        else
+        {
+            AdminChatMessages.Clear();
+            SetAssociatedAdminChatModules(Array.Empty<AdminChatSessionModule>());
+        }
+    }
+
+    partial void OnSelectedAdminChatAiModelChanged(AdminChatAiModelOption? value)
+    {
+        if (value != null && SelectedAdminChatSession != null)
+        {
+            _adminChatSessionModelIds[SelectedAdminChatSession.Id] = value.Id;
+        }
+
+        OnPropertyChanged(nameof(AdminChatSelectedModelDescription));
     }
 
     [RelayCommand(CanExecute = nameof(CanAdminLogin))]
@@ -158,22 +218,11 @@ public partial class MainWindowViewModel
 
             // 密码只用于本次请求，成功后立即从 ViewModel 清除。
             AdminPassword = string.Empty;
-            IsAdminAuthenticated = true;
-            AdminChatStatusText = $"{authentication.UserName} 已通过 AdminOnly 验证";
-            OnPropertyChanged(nameof(AdminChatAccountText));
-
-            await _desktopBridgeClient.StartAuthorizedSyncAsync(
-                SiteUrl,
-                _desktopBridgeSessionToken,
-                authentication.AccessToken,
-                _desktopBridgeCapabilities.AuthorizedSyncEndpoint,
-                _cancellationTokenSource?.Token ?? CancellationToken.None);
-
-            await RefreshAdminChatSessionsAsync(loadSelectedMessages: true);
-            AddLog($"🔐 管理员 {authentication.UserName} 已连接快捷聊天（令牌仅保存在内存中）");
+            await CompleteAdminChatAuthenticationAsync(authentication, "显式登录");
         }
         catch (AdminChatApiException ex)
         {
+            await _desktopBridgeClient.StopAuthorizedSyncAsync();
             _adminChatClient.ClearAuthentication();
             IsAdminAuthenticated = false;
             AdminChatStatusText = ex.Message;
@@ -188,6 +237,7 @@ public partial class MainWindowViewModel
         }
         catch (Exception ex)
         {
+            await _desktopBridgeClient.StopAuthorizedSyncAsync();
             _adminChatClient.ClearAuthentication();
             IsAdminAuthenticated = false;
             AdminChatStatusText = $"登录失败：{ex.Message}";
@@ -212,15 +262,238 @@ public partial class MainWindowViewModel
     [RelayCommand]
     private async Task AdminLogout()
     {
+        _suppressAdminWebHandoffUntilWebLogin = true;
+        CancelAdminWebHandoff();
         await _desktopBridgeClient.StopAuthorizedSyncAsync();
         _adminChatClient.ClearAuthentication();
         IsAdminAuthenticated = false;
         AdminPassword = string.Empty;
         AdminChatSessions.Clear();
         AdminChatMessages.Clear();
+        ResetAdminChatOptions();
         SelectedAdminChatSession = null;
         AdminChatStatusText = "已退出；JWT 已从内存中清除。";
         OnPropertyChanged(nameof(AdminChatAccountText));
+    }
+
+    /// <summary>
+    /// 浏览器完成导航后仅根据同源 Admin 页面判断 Cookie 登录是否已成功。
+    /// Cookie 本身始终留在 WebView，GUI 只发起 DesktopBridge + PKCE 一次性换票。
+    /// </summary>
+    public void HandleAdminWebViewNavigation(string url)
+    {
+        if (!TryGetSameOriginAdminNavigation(url, out var navigationUri, out var isLoginPage))
+        {
+            return;
+        }
+
+        if (isLoginPage)
+        {
+            _suppressAdminWebHandoffUntilWebLogin = false;
+            CancelAdminWebHandoff();
+            return;
+        }
+
+        if (navigationUri.AbsolutePath.StartsWith(
+                "/Admin/DesktopBridge/AuthHandoff",
+                StringComparison.OrdinalIgnoreCase) ||
+            IsAdminAuthenticated || _suppressAdminWebHandoffUntilWebLogin ||
+            DateTimeOffset.UtcNow < _nextAdminWebHandoffAttemptUtc ||
+            !CanUseAdminWebHandoff())
+        {
+            return;
+        }
+
+        _ = AuthenticateAdminChatFromWebViewAsync(navigationUri);
+    }
+
+    private async Task AuthenticateAdminChatFromWebViewAsync(Uri navigationUri)
+    {
+        if (Interlocked.CompareExchange(ref _adminWebHandoffInProgress, 1, 0) != 0)
+        {
+            return;
+        }
+
+        var siteCancellation = _cancellationTokenSource?.Token ?? CancellationToken.None;
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(siteCancellation);
+        cancellation.CancelAfter(TimeSpan.FromSeconds(75));
+        _adminWebHandoffCancellation = cancellation;
+        IsAdminChatBusy = true;
+        AdminChatStatusText = "检测到 WebView 管理员登录，正在安全授权 AdminChat…";
+        try
+        {
+            var capabilities = _desktopBridgeCapabilities!;
+            var desktopSessionToken = _desktopBridgeSessionToken!;
+            var returnPath = string.IsNullOrWhiteSpace(navigationUri.PathAndQuery)
+                ? "/Admin/Index"
+                : navigationUri.PathAndQuery;
+            var handoff = await _desktopBridgeClient.CreateAdminAuthHandoffAsync(
+                SiteUrl,
+                desktopSessionToken,
+                returnPath,
+                capabilities.AdminAuthHandoffRequestEndpoint,
+                cancellation.Token);
+
+            if (!SiteEndpointPolicy.TryCreateEndpoint(
+                    SiteUrl,
+                    handoff.ApprovalPath,
+                    out var approvalUri,
+                    out var approvalError))
+            {
+                throw new InvalidOperationException(approvalError);
+            }
+
+            if (BrowserViewReference is not NcfDesktopApp.GUI.Views.BrowserView browserView)
+            {
+                throw new InvalidOperationException("内置浏览器尚未就绪。");
+            }
+
+            await browserView.NavigateToUrl(approvalUri.ToString());
+            AdminChatStatusText = "请在 WebView 确认“授权此 GUI”；无需再次输入管理员密码。";
+            while (DateTimeOffset.UtcNow < handoff.ExpiresAt)
+            {
+                await Task.Delay(handoff.PollIntervalMilliseconds, cancellation.Token);
+                var result = await _desktopBridgeClient.RedeemAdminAuthHandoffAsync(
+                    SiteUrl,
+                    desktopSessionToken,
+                    handoff,
+                    capabilities.AdminAuthHandoffRedeemEndpoint,
+                    cancellation.Token);
+                if (string.Equals(result.Status, "pending", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (!string.Equals(result.Status, "approved", StringComparison.OrdinalIgnoreCase))
+                {
+                    _nextAdminWebHandoffAttemptUtc = DateTimeOffset.UtcNow.AddSeconds(30);
+                    AdminChatStatusText = result.Message ?? "WebView 自动授权未完成，请使用显式登录。";
+                    return;
+                }
+
+                var authentication = await _adminChatClient.AuthenticateWithAccessTokenAsync(
+                    SiteUrl,
+                    result.UserName!,
+                    result.AccessToken!,
+                    result.ExpiresUtc,
+                    cancellation.Token);
+                await CompleteAdminChatAuthenticationAsync(authentication, "WebView 自动授权");
+                return;
+            }
+
+            _nextAdminWebHandoffAttemptUtc = DateTimeOffset.UtcNow.AddSeconds(30);
+            AdminChatStatusText = "WebView 自动授权已过期，请重新进入后台页面或使用显式登录。";
+        }
+        catch (OperationCanceledException)
+        {
+            // 站点停止、显式注销或重新进入登录页时静默取消，不覆盖新的界面状态。
+        }
+        catch (AdminChatApiException ex)
+        {
+            await _desktopBridgeClient.StopAuthorizedSyncAsync();
+            _adminChatClient.ClearAuthentication();
+            IsAdminAuthenticated = false;
+            _nextAdminWebHandoffAttemptUtc = DateTimeOffset.UtcNow.AddSeconds(30);
+            AdminChatStatusText = ex.Message;
+            AddLog($"🔒 WebView 自动授权失败: {ex.Message}");
+        }
+        catch (Exception ex)
+        {
+            await _desktopBridgeClient.StopAuthorizedSyncAsync();
+            _adminChatClient.ClearAuthentication();
+            IsAdminAuthenticated = false;
+            _nextAdminWebHandoffAttemptUtc = DateTimeOffset.UtcNow.AddSeconds(30);
+            AdminChatStatusText = $"WebView 自动授权不可用，请使用显式登录：{ex.Message}";
+            AddLog($"⚠️ WebView 自动授权已安全降级: {ex.Message}");
+        }
+        finally
+        {
+            if (ReferenceEquals(_adminWebHandoffCancellation, cancellation))
+            {
+                _adminWebHandoffCancellation = null;
+            }
+
+            Interlocked.Exchange(ref _adminWebHandoffInProgress, 0);
+            IsAdminChatBusy = false;
+        }
+    }
+
+    private async Task CompleteAdminChatAuthenticationAsync(
+        AdminChatAuthentication authentication,
+        string authenticationSource)
+    {
+        if (_desktopBridgeSessionToken == null ||
+            string.IsNullOrWhiteSpace(_desktopBridgeCapabilities?.AuthorizedSyncEndpoint))
+        {
+            throw new InvalidOperationException("DesktopBridge 授权同步接口尚未就绪。");
+        }
+
+        AdminUserName = authentication.UserName;
+        AdminPassword = string.Empty;
+        IsAdminAuthenticated = true;
+        AdminChatStatusText = $"{authentication.UserName} 已通过 AdminOnly 验证";
+        OnPropertyChanged(nameof(AdminChatAccountText));
+
+        await _desktopBridgeClient.StartAuthorizedSyncAsync(
+            SiteUrl,
+            _desktopBridgeSessionToken,
+            authentication.AccessToken,
+            _desktopBridgeCapabilities.AuthorizedSyncEndpoint,
+            _cancellationTokenSource?.Token ?? CancellationToken.None);
+        await LoadAdminChatOptionsAsync();
+        await RefreshAdminChatSessionsAsync(loadSelectedMessages: true);
+        AddLog($"🔐 管理员 {authentication.UserName} 已通过{authenticationSource}连接快捷聊天（JWT 仅保存在内存中）");
+    }
+
+    private bool CanUseAdminWebHandoff()
+    {
+        return IsDesktopBridgeAvailableForChat &&
+               !string.IsNullOrWhiteSpace(_desktopBridgeSessionToken) &&
+               _desktopBridgeCapabilities is
+               {
+                   SupportsAdminAuthHandoff: true,
+                   AdminAuthHandoffRequestEndpoint.Length: > 0,
+                   AdminAuthHandoffRedeemEndpoint.Length: > 0
+               };
+    }
+
+    private bool TryGetSameOriginAdminNavigation(
+        string url,
+        out Uri navigationUri,
+        out bool isLoginPage)
+    {
+        navigationUri = null!;
+        isLoginPage = false;
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var candidate) || candidate == null ||
+            !SiteEndpointPolicy.TryNormalizeSiteUrl(SiteUrl, out var siteUri, out _) ||
+            !string.Equals(candidate.Scheme, siteUri.Scheme, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(candidate.Host, siteUri.Host, StringComparison.OrdinalIgnoreCase) ||
+            candidate.Port != siteUri.Port)
+        {
+            return false;
+        }
+
+        var path = candidate.AbsolutePath.TrimEnd('/');
+        if (!path.Equals("/Admin", StringComparison.OrdinalIgnoreCase) &&
+            !path.StartsWith("/Admin/", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        navigationUri = candidate;
+        isLoginPage = path.Equals("/Admin/Login", StringComparison.OrdinalIgnoreCase);
+        return true;
+    }
+
+    private void CancelAdminWebHandoff()
+    {
+        try
+        {
+            _adminWebHandoffCancellation?.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+        }
     }
 
     [RelayCommand(CanExecute = nameof(CanUseAdminChat))]
@@ -231,7 +504,10 @@ public partial class MainWindowViewModel
         {
             var sessionId = await _adminChatClient.CreateSessionAsync(
                 SiteUrl,
+                SelectedAdminChatAiModel?.Id ?? 0,
+                GetSelectedAdminChatModuleUids(),
                 _cancellationTokenSource?.Token ?? CancellationToken.None);
+            _adminChatSessionModelIds[sessionId] = SelectedAdminChatAiModel?.Id ?? 0;
             await RefreshAdminChatSessionsAsync(loadSelectedMessages: false, preferredSessionId: sessionId);
             AdminChatStatusText = "新会话已创建。";
         }
@@ -243,6 +519,93 @@ public partial class MainWindowViewModel
         {
             IsAdminChatBusy = false;
         }
+    }
+
+    [RelayCommand(CanExecute = nameof(CanDeleteAdminChatSession))]
+    private async Task DeleteAdminChatSession()
+    {
+        var session = SelectedAdminChatSession;
+        if (session == null)
+        {
+            return;
+        }
+
+        var confirmed = await ShowConfirmDialogAsync(
+            "删除聊天会话",
+            $"确定删除“{session.DisplayName}”吗？\n\n该会话会从活动记录中移除，此操作无法在 GUI 中撤销。",
+            "删除会话",
+            "取消");
+        if (!confirmed)
+        {
+            return;
+        }
+
+        IsAdminChatBusy = true;
+        try
+        {
+            await _adminChatClient.DeleteSessionAsync(
+                SiteUrl,
+                session.Id,
+                _cancellationTokenSource?.Token ?? CancellationToken.None);
+            _adminChatSessionModelIds.Remove(session.Id);
+            SelectedAdminChatSession = null;
+            await RefreshAdminChatSessionsAsync(loadSelectedMessages: true);
+            AdminChatStatusText = "聊天会话已删除。";
+        }
+        catch (AdminChatApiException ex)
+        {
+            HandleAdminChatApiFailure(ex);
+        }
+        finally
+        {
+            IsAdminChatBusy = false;
+        }
+    }
+
+    private bool CanDeleteAdminChatSession()
+    {
+        return CanUseAdminChat() && SelectedAdminChatSession != null;
+    }
+
+    [RelayCommand(CanExecute = nameof(CanApplyAdminChatModules))]
+    private async Task ApplyAdminChatModules()
+    {
+        var session = SelectedAdminChatSession;
+        var modules = AdminChatModuleOptions
+            .Where(option => option.IsSelected)
+            .Select(option => option.Module)
+            .ToArray();
+        if (session == null)
+        {
+            return;
+        }
+
+        IsAdminChatBusy = true;
+        try
+        {
+            await _adminChatClient.SetModulesForSessionAsync(
+                SiteUrl,
+                session.Id,
+                modules,
+                _cancellationTokenSource?.Token ?? CancellationToken.None);
+            await LoadAdminChatSessionCoreAsync(session.Id);
+            AdminChatStatusText = $"已更新 XNCF 模块关联，共选择 {modules.Length} 个模块。";
+        }
+        catch (AdminChatApiException ex)
+        {
+            HandleAdminChatApiFailure(ex);
+        }
+        finally
+        {
+            IsAdminChatBusy = false;
+        }
+    }
+
+    private bool CanApplyAdminChatModules()
+    {
+        return CanUseAdminChat() &&
+               SelectedAdminChatSession != null &&
+               AdminChatModuleOptions.Any(option => option.IsSelected != option.IsAssociated);
     }
 
     [RelayCommand(CanExecute = nameof(CanSendAdminChatMessage))]
@@ -269,7 +632,10 @@ public partial class MainWindowViewModel
             {
                 sessionId = await _adminChatClient.CreateSessionAsync(
                     SiteUrl,
+                    SelectedAdminChatAiModel?.Id ?? 0,
+                    GetSelectedAdminChatModuleUids(),
                     _cancellationTokenSource?.Token ?? CancellationToken.None);
+                _adminChatSessionModelIds[sessionId] = SelectedAdminChatAiModel?.Id ?? 0;
             }
 
             ChatInput = string.Empty;
@@ -283,6 +649,7 @@ public partial class MainWindowViewModel
                 SiteUrl,
                 sessionId,
                 content,
+                aiModelId: SelectedAdminChatAiModel?.Id ?? 0,
                 onUserMessage: message => ReconcileUserMessage(optimisticUserId, message),
                 onToken: chunk => HandleStreamingAssistantChunk(sessionId, chunk),
                 onAssistantMessage: message => CompleteStreamingAssistantMessage(message),
@@ -330,6 +697,199 @@ public partial class MainWindowViewModel
         return IsAdminChatActive && !IsAdminChatBusy;
     }
 
+    internal async Task DeleteAdminChatMessageAsync(AdminChatMessage message)
+    {
+        var session = SelectedAdminChatSession;
+        if (!CanUseAdminChat() || session == null || !message.CanDelete || message.SessionId != session.Id)
+        {
+            return;
+        }
+
+        var preview = message.Content.Replace('\r', ' ').Replace('\n', ' ').Trim();
+        if (preview.Length > 80)
+        {
+            preview = preview[..80] + "…";
+        }
+
+        var confirmed = await ShowConfirmDialogAsync(
+            "删除聊天消息",
+            $"确定删除这条{(message.IsUser ? "用户" : "Agent")}消息吗？\n\n{preview}",
+            "删除消息",
+            "取消");
+        if (!confirmed)
+        {
+            return;
+        }
+
+        IsAdminChatBusy = true;
+        try
+        {
+            await _adminChatClient.DeleteMessagesAsync(
+                SiteUrl,
+                session.Id,
+                new[] { message.Id },
+                _cancellationTokenSource?.Token ?? CancellationToken.None);
+            await LoadAdminChatSessionCoreAsync(session.Id);
+            AdminChatStatusText = "聊天消息已删除。";
+        }
+        catch (AdminChatApiException ex)
+        {
+            HandleAdminChatApiFailure(ex);
+        }
+        finally
+        {
+            IsAdminChatBusy = false;
+        }
+    }
+
+    private async Task LoadAdminChatOptionsAsync()
+    {
+        ResetAdminChatOptions();
+        var cancellationToken = _cancellationTokenSource?.Token ?? CancellationToken.None;
+
+        try
+        {
+            var models = await _adminChatClient.GetAiModelOptionsAsync(SiteUrl, cancellationToken);
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                AdminChatAiModelOptions.Clear();
+                foreach (var model in models)
+                {
+                    AdminChatAiModelOptions.Add(model);
+                }
+
+                EnsureDefaultAdminChatModel();
+                SelectedAdminChatAiModel = AdminChatAiModelOptions.FirstOrDefault(model => model.IsDefault) ??
+                                           AdminChatAiModelOptions.FirstOrDefault();
+            });
+        }
+        catch (AdminChatApiException ex) when (!ex.IsAuthenticationFailure)
+        {
+            AddLog($"⚠️ Admin Chat 模型列表不可用，将使用系统默认模型：{ex.Message}");
+        }
+
+        try
+        {
+            var modules = await _adminChatClient.GetAvailableModulesAsync(SiteUrl, cancellationToken);
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                ClearAdminChatModuleOptions();
+                foreach (var module in modules)
+                {
+                    AddAdminChatModuleOption(new AdminChatModuleOption(module));
+                }
+
+                OnPropertyChanged(nameof(HasAdminChatModuleOptions));
+                OnPropertyChanged(nameof(AdminChatModuleSelectionText));
+            });
+        }
+        catch (AdminChatApiException ex) when (!ex.IsAuthenticationFailure)
+        {
+            AddLog($"⚠️ Admin Chat XNCF 模块列表不可用：{ex.Message}");
+        }
+    }
+
+    private void ResetAdminChatOptions()
+    {
+        _adminChatSessionModelIds.Clear();
+        AdminChatAiModelOptions.Clear();
+        EnsureDefaultAdminChatModel();
+        SelectedAdminChatAiModel = AdminChatAiModelOptions[0];
+        ClearAdminChatModuleOptions();
+        OnPropertyChanged(nameof(HasAdminChatModuleOptions));
+        OnPropertyChanged(nameof(AdminChatModuleSelectionText));
+    }
+
+    private void EnsureDefaultAdminChatModel()
+    {
+        if (AdminChatAiModelOptions.All(model => model.Id != 0))
+        {
+            AdminChatAiModelOptions.Insert(0, new AdminChatAiModelOption(
+                0,
+                "系统默认模型",
+                "使用站点 SenparcAiSetting 中配置的聊天模型。",
+                true));
+        }
+    }
+
+    private void ClearAdminChatModuleOptions()
+    {
+        foreach (var option in AdminChatModuleOptions)
+        {
+            option.PropertyChanged -= AdminChatModuleOptionOnPropertyChanged;
+        }
+
+        AdminChatModuleOptions.Clear();
+    }
+
+    private void AddAdminChatModuleOption(AdminChatModuleOption option)
+    {
+        option.PropertyChanged += AdminChatModuleOptionOnPropertyChanged;
+        AdminChatModuleOptions.Add(option);
+    }
+
+    private void AdminChatModuleOptionOnPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName != nameof(AdminChatModuleOption.IsSelected))
+        {
+            return;
+        }
+
+        OnPropertyChanged(nameof(AdminChatModuleSelectionText));
+        ApplyAdminChatModulesCommand.NotifyCanExecuteChanged();
+    }
+
+    private string[] GetSelectedAdminChatModuleUids()
+    {
+        return AdminChatModuleOptions
+            .Where(option => option.IsSelected)
+            .Select(option => option.Uid)
+            .Where(uid => !string.IsNullOrWhiteSpace(uid))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    private void SetAssociatedAdminChatModules(IReadOnlyCollection<AdminChatSessionModule> modules)
+    {
+        var associatedByUid = modules
+            .Where(module => !string.IsNullOrWhiteSpace(module.XncfModuleUid))
+            .GroupBy(module => module.XncfModuleUid, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+
+        foreach (var option in AdminChatModuleOptions)
+        {
+            option.IsAssociated = associatedByUid.ContainsKey(option.Uid);
+            option.IsSelected = option.IsAssociated;
+        }
+
+        foreach (var module in associatedByUid.Values)
+        {
+            if (AdminChatModuleOptions.Any(option =>
+                    string.Equals(option.Uid, module.XncfModuleUid, StringComparison.OrdinalIgnoreCase)))
+            {
+                continue;
+            }
+
+            var option = new AdminChatModuleOption(new AdminChatAvailableModule(
+                module.XncfModuleUid,
+                module.ModuleName,
+                string.IsNullOrWhiteSpace(module.DisplayName) ? module.ModuleName : module.DisplayName,
+                module.ModuleVersion,
+                module.ModuleDescription ?? string.Empty,
+                string.Empty,
+                false))
+            {
+                IsAssociated = true,
+                IsSelected = true
+            };
+            AddAdminChatModuleOption(option);
+        }
+
+        OnPropertyChanged(nameof(HasAdminChatModuleOptions));
+        OnPropertyChanged(nameof(AdminChatModuleSelectionText));
+        ApplyAdminChatModulesCommand.NotifyCanExecuteChanged();
+    }
+
     private async Task RefreshAdminChatSessionsAsync(
         bool loadSelectedMessages,
         int? preferredSessionId = null)
@@ -363,7 +923,15 @@ public partial class MainWindowViewModel
 
             if (loadSelectedMessages && selected != null)
             {
-                await LoadAdminChatMessagesCoreAsync(selected.Id);
+                await LoadAdminChatSessionCoreAsync(selected.Id);
+            }
+            else if (selected == null)
+            {
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    AdminChatMessages.Clear();
+                    SetAssociatedAdminChatModules(Array.Empty<AdminChatSessionModule>());
+                });
             }
         }
         finally
@@ -372,12 +940,12 @@ public partial class MainWindowViewModel
         }
     }
 
-    private async Task LoadAdminChatMessagesAsync(int sessionId)
+    private async Task LoadAdminChatSessionAsync(int sessionId)
     {
         await _adminChatRefreshLock.WaitAsync();
         try
         {
-            await LoadAdminChatMessagesCoreAsync(sessionId);
+            await LoadAdminChatSessionCoreAsync(sessionId);
         }
         catch (AdminChatApiException ex)
         {
@@ -389,14 +957,14 @@ public partial class MainWindowViewModel
         }
     }
 
-    private async Task LoadAdminChatMessagesCoreAsync(int sessionId)
+    private async Task LoadAdminChatSessionCoreAsync(int sessionId)
     {
         if (!IsAdminChatActive)
         {
             return;
         }
 
-        var messages = await _adminChatClient.GetSessionMessagesAsync(
+        var session = await _adminChatClient.GetSessionDetailAsync(
             SiteUrl,
             sessionId,
             _cancellationTokenSource?.Token ?? CancellationToken.None);
@@ -408,10 +976,15 @@ public partial class MainWindowViewModel
             }
 
             AdminChatMessages.Clear();
-            foreach (var message in messages)
+            var messages = session?.Messages ?? new List<AdminChatMessage>();
+            foreach (var message in messages
+                         .OrderBy(message => message.Sequence)
+                         .ThenBy(message => message.Id))
             {
                 AdminChatMessages.Add(message);
             }
+
+            SetAssociatedAdminChatModules(session?.Modules ?? new List<AdminChatSessionModule>());
         });
     }
 
@@ -432,7 +1005,9 @@ public partial class MainWindowViewModel
         }
         else if (!IsAdminAuthenticated)
         {
-            AdminChatStatusText = "DesktopBridge 已连接，请使用后台管理员账号登录。";
+            AdminChatStatusText = _desktopBridgeCapabilities?.SupportsAdminAuthHandoff == true
+                ? "DesktopBridge 已连接；可在内置 WebView 登录后台，或在此显式登录。"
+                : "DesktopBridge 已连接，请使用后台管理员账号登录。";
         }
 
         OnPropertyChanged(nameof(AdminChatDisabledReason));
@@ -472,6 +1047,7 @@ public partial class MainWindowViewModel
             IsAdminAuthenticated = false;
             AdminChatSessions.Clear();
             AdminChatMessages.Clear();
+            ResetAdminChatOptions();
             SelectedAdminChatSession = null;
             AdminChatStatusText = message;
             OnPropertyChanged(nameof(AdminChatAccountText));
@@ -490,12 +1066,16 @@ public partial class MainWindowViewModel
         IsAdminAuthenticated = false;
         AdminChatSessions.Clear();
         AdminChatMessages.Clear();
+        ResetAdminChatOptions();
         SelectedAdminChatSession = null;
         OnPropertyChanged(nameof(AdminChatAccountText));
     }
 
     private void ResetAdminChatState()
     {
+        CancelAdminWebHandoff();
+        _suppressAdminWebHandoffUntilWebLogin = false;
+        _nextAdminWebHandoffAttemptUtc = default;
         _adminChatClient.ClearAuthentication();
         _desktopBridgeCapabilities = null;
         Dispatcher.UIThread.Post(() =>
@@ -505,6 +1085,7 @@ public partial class MainWindowViewModel
             AdminPassword = string.Empty;
             AdminChatSessions.Clear();
             AdminChatMessages.Clear();
+            ResetAdminChatOptions();
             SelectedAdminChatSession = null;
             AdminChatStatusText = "启动 NCF 并连接 DesktopBridge 后可登录。";
             OnPropertyChanged(nameof(AdminChatAccountText));
@@ -521,6 +1102,8 @@ public partial class MainWindowViewModel
         OnPropertyChanged(nameof(AdminChatDisabledReason));
         AdminLoginCommand.NotifyCanExecuteChanged();
         NewAdminChatSessionCommand.NotifyCanExecuteChanged();
+        DeleteAdminChatSessionCommand.NotifyCanExecuteChanged();
+        ApplyAdminChatModulesCommand.NotifyCanExecuteChanged();
         SendAdminChatMessageCommand.NotifyCanExecuteChanged();
         ScheduleWakeWordListeningRefresh();
     }

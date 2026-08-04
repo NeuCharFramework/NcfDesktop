@@ -46,6 +46,7 @@ public partial class EmbeddedWebView : UserControl
     private Grid _webViewContainer = null!;
     private Border _webViewArea = null!;
     private WebView? _webView = null;
+    private IDisposable? _nativeMacKeyboardMonitor;
     
     /// <summary>
     /// 获取 WebView 是否已初始化完成
@@ -348,6 +349,19 @@ public partial class EmbeddedWebView : UserControl
         {
             _ = WebViewEditBridge.EnsureKeyboardPatchAsync(_webView);
         }
+
+        EnsureNativeMacKeyboardMonitor();
+    }
+
+    private void EnsureNativeMacKeyboardMonitor()
+    {
+        _nativeMacKeyboardMonitor ??= WebViewEditBridge.TryInstallNativeMacKeyboardMonitor(_webView);
+    }
+
+    private void RemoveNativeMacKeyboardMonitor()
+    {
+        _nativeMacKeyboardMonitor?.Dispose();
+        _nativeMacKeyboardMonitor = null;
     }
 
     private void OpenInExternalBrowser(string url)
@@ -555,6 +569,7 @@ public partial class EmbeddedWebView : UserControl
         else
         {
             Debug.WriteLine("✅ WebView 已就绪，跳过重新初始化（保持状态）");
+            EnsureNativeMacKeyboardMonitor();
             
             // 🔧 检查 WebView 是否仍然存在且有效
             if (_webView != null)
@@ -592,6 +607,7 @@ public partial class EmbeddedWebView : UserControl
         // Avalonia 的 TabControl 在标签切换时可能触发 OnUnloaded，但不会完全销毁控件
         // 因此我们不清理 WebView，以保持登录状态和浏览历史
         Debug.WriteLine("ℹ️ OnUnloaded 触发，保持 WebView 状态（不清理）");
+        RemoveNativeMacKeyboardMonitor();
         
         // ❌ 已禁用：防止标签切换时清理 WebView（会丢失登录状态）
         // CleanupWebView();
@@ -605,6 +621,7 @@ public partial class EmbeddedWebView : UserControl
         try
         {
             Debug.WriteLine("🧹 开始清理 WebView 资源...");
+            RemoveNativeMacKeyboardMonitor();
             
             if (_webView != null)
             {

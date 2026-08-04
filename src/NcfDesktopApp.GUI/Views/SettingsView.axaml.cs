@@ -157,6 +157,24 @@ public partial class SettingsView : UserControl
             viewModel.TtsPlaybackStatusText = $"朗读失败：{ex.Message}";
         }
     }
+
+    private async void AdminChatDeleteMessageButton_OnClick(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { DataContext: AdminChatMessage message } ||
+            DataContext is not MainWindowViewModel viewModel)
+        {
+            return;
+        }
+
+        try
+        {
+            await viewModel.DeleteAdminChatMessageAsync(message);
+        }
+        catch (Exception ex)
+        {
+            viewModel.AdminChatStatusText = $"删除消息失败：{ex.Message}";
+        }
+    }
     
     /// <summary>
     /// 当滚动条位置改变时触发

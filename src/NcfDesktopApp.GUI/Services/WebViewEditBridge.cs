@@ -23,6 +23,7 @@ using Avalonia.Input;
 using Avalonia.Input.Platform;
 using Avalonia.WebView.MacCatalyst.Core;
 using AppKit;
+using Foundation;
 using ObjCRuntime;
 using WebView = AvaloniaWebView.WebView;
 
@@ -42,6 +43,28 @@ internal static class WebViewEditBridge
     public static bool IsScriptBridgeSupported => IsScriptBridgeSupportedForPlatform(OperatingSystem.IsMacOS());
 
     internal static bool IsScriptBridgeSupportedForPlatform(bool isMacOS) => !isMacOS;
+
+    /// <summary>
+    /// WKWebView 获得原生焦点后，Command 组合键不会继续冒泡到 Avalonia Window。
+    /// 在 AppKit 分发层捕获标准编辑快捷键，并直接发送给 WKContentView first responder。
+    /// </summary>
+    public static IDisposable? TryInstallNativeMacKeyboardMonitor(WebView? webView)
+    {
+        if (!OperatingSystem.IsMacOS() || webView is null || !TryGetNativeMacWebView(webView, out _))
+        {
+            return null;
+        }
+
+        try
+        {
+            return new NativeMacKeyboardMonitor(webView);
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[WebViewEditBridge] 安装 macOS 键盘监听失败: {ex.Message}");
+            return null;
+        }
+    }
 
     /// <summary>
     /// 注入到页面的键盘补丁：仅处理修饰键快捷键，不拦截普通打字。
@@ -372,6 +395,29 @@ internal static class WebViewEditBridge
         return command != EditCommand.None;
     }
 
+    internal static EditCommand GetNativeMacEditCommand(
+        string? charactersIgnoringModifiers,
+        bool hasCommand,
+        bool hasControl,
+        bool hasAlternate,
+        bool hasShift)
+    {
+        if (!hasCommand || hasControl || hasAlternate || hasShift ||
+            string.IsNullOrWhiteSpace(charactersIgnoringModifiers))
+        {
+            return EditCommand.None;
+        }
+
+        return charactersIgnoringModifiers.ToLowerInvariant() switch
+        {
+            "c" => EditCommand.Copy,
+            "x" => EditCommand.Cut,
+            "v" => EditCommand.Paste,
+            "a" => EditCommand.SelectAll,
+            _ => EditCommand.None
+        };
+    }
+
     private static bool MatchesAny(System.Collections.Generic.IReadOnlyList<KeyGesture>? gestures, KeyEventArgs e)
     {
         if (gestures is null)
@@ -398,8 +444,7 @@ internal static class WebViewEditBridge
     {
         try
         {
-            if (webView.PlatformWebView?.PlatformViewContext is not MacCatalystWebViewCore nativeCore ||
-                nativeCore.WebView is null ||
+            if (!TryGetNativeMacWebView(webView, out var nativeWebView) ||
                 GetNativeMacSelector(command) is not { } selectorName)
             {
                 return false;
@@ -408,7 +453,7 @@ internal static class WebViewEditBridge
             var application = NSApplication.SharedApplication;
             var selector = new Selector(selectorName);
             var target = application.TargetForAction(selector);
-            var handled = target is not null && application.SendAction(selector, target, nativeCore.WebView);
+            var handled = target is not null && application.SendAction(selector, target, nativeWebView);
             Debug.WriteLine($"[WebViewEditBridge] Native macOS {command} => {handled}");
             return handled;
         }
@@ -416,6 +461,122 @@ internal static class WebViewEditBridge
         {
             Debug.WriteLine($"[WebViewEditBridge] Native macOS {command} 失败: {ex.Message}");
             return false;
+        }
+    }
+
+    private static bool TryGetNativeMacWebView(WebView webView, out WebKit.WKWebView nativeWebView)
+    {
+        if (webView.PlatformWebView?.PlatformViewContext is MacCatalystWebViewCore
+            {
+                WebView: { } platformWebView
+            })
+        {
+            nativeWebView = platformWebView;
+            return true;
+        }
+
+        nativeWebView = null!;
+        return false;
+    }
+
+    private static bool IsNativeMacWebViewFirstResponder(WebKit.WKWebView nativeWebView)
+    {
+        var responder = nativeWebView.Window?.FirstResponder;
+        if (responder is null)
+        {
+            return false;
+        }
+
+        if (responder.Handle == nativeWebView.Handle)
+        {
+            return true;
+        }
+
+        if (responder is NSView responderView && responderView.IsDescendantOf(nativeWebView))
+        {
+            return true;
+        }
+
+        // WKContentView is an internal WebKit class. Older Xamarin.Mac builds can expose it
+        // only as NSResponder, so also follow the responder chain instead of relying on its
+        // managed wrapper being recognized as NSView.
+        var current = responder.NextResponder;
+        for (var depth = 0; current is not null && depth < 32; depth++)
+        {
+            if (current.Handle == nativeWebView.Handle)
+            {
+                return true;
+            }
+
+            current = current.NextResponder;
+        }
+
+        return false;
+    }
+
+    private sealed class NativeMacKeyboardMonitor : IDisposable
+    {
+        private WebView? _webView;
+        private LocalEventHandler? _handler;
+        private NSObject? _monitor;
+
+        public NativeMacKeyboardMonitor(WebView webView)
+        {
+            _webView = webView;
+            _handler = HandleKeyDown;
+            _monitor = NSEvent.AddLocalMonitorForEventsMatchingMask(NSEventMask.KeyDown, _handler);
+        }
+
+        private NSEvent HandleKeyDown(NSEvent nativeEvent)
+        {
+            var webView = _webView;
+            if (webView is null || nativeEvent.Type != NSEventType.KeyDown ||
+                !TryGetNativeMacWebView(webView, out var nativeWebView) ||
+                !IsNativeMacWebViewFirstResponder(nativeWebView))
+            {
+                return nativeEvent;
+            }
+
+            var modifiers = nativeEvent.ModifierFlags;
+            var command = GetNativeMacEditCommand(
+                nativeEvent.CharactersIgnoringModifiers,
+                modifiers.HasFlag(NSEventModifierMask.CommandKeyMask),
+                modifiers.HasFlag(NSEventModifierMask.ControlKeyMask),
+                modifiers.HasFlag(NSEventModifierMask.AlternateKeyMask),
+                modifiers.HasFlag(NSEventModifierMask.ShiftKeyMask));
+
+            if (command == EditCommand.None || !TryExecuteNativeMacEditCommand(webView, command))
+            {
+                return nativeEvent;
+            }
+
+            Debug.WriteLine($"[WebViewEditBridge] AppKit KeyDown 已处理: {command}");
+            return null!;
+        }
+
+        public void Dispose()
+        {
+            var monitor = _monitor;
+            _monitor = null;
+            _handler = null;
+            _webView = null;
+            if (monitor is null)
+            {
+                return;
+            }
+
+            try
+            {
+                NSEvent.RemoveMonitor(monitor);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[WebViewEditBridge] 移除 macOS 键盘监听失败: {ex.Message}");
+            }
+            finally
+            {
+                monitor.Dispose();
+            }
         }
     }
 

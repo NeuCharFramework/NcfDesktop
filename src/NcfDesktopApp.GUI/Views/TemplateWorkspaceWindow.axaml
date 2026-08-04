@@ -4,8 +4,8 @@
         x:Class="NcfDesktopApp.GUI.Views.TemplateWorkspaceWindow"
         x:DataType="vm:MainWindowViewModel"
         Title="从模板新建 NCF 工作区"
-        Width="640" Height="480"
-        MinWidth="520" MinHeight="420"
+        Width="680" Height="650"
+        MinWidth="540" MinHeight="500"
         WindowStartupLocation="CenterOwner"
         ShowInTaskbar="False"
         Icon="/Assets/NCF-logo.png">
@@ -61,6 +61,59 @@
                     <TextBox Text="{Binding TemplateWorkspaceName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                              Watermark="例如 MyNcfWorkspace"
                              IsEnabled="{Binding IsTargetSelectionEnabled}"/>
+                </StackPanel>
+
+                <StackPanel Spacing="9">
+                    <TextBlock Text="初始配置" Classes="field-label"/>
+                    <Border Background="{DynamicResource ToolbarBackgroundBrush}"
+                            BorderBrush="{DynamicResource CardBorderBrush}"
+                            BorderThickness="1"
+                            CornerRadius="7"
+                            Padding="12">
+                        <StackPanel Spacing="10">
+                            <RadioButton Content="使用模板默认配置"
+                                         GroupName="TemplateConfigurationSource"
+                                         IsChecked="{Binding UsesTemplateDefaultConfiguration, Mode=TwoWay}"
+                                         IsEnabled="{Binding IsTargetSelectionEnabled}"/>
+                            <StackPanel Spacing="3">
+                                <RadioButton Content="复制当前托管版本的配置"
+                                             GroupName="TemplateConfigurationSource"
+                                             IsChecked="{Binding UsesManagedRuntimeConfiguration, Mode=TwoWay}"
+                                             IsEnabled="{Binding IsTargetSelectionEnabled}"/>
+                                <SelectableTextBlock Text="{Binding ManagedRuntimePath}"
+                                                     Margin="26,0,0,0"
+                                                     FontSize="10"
+                                                     Foreground="{DynamicResource SecondaryTextBrush}"
+                                                     TextWrapping="Wrap"/>
+                            </StackPanel>
+                            <StackPanel Spacing="7">
+                                <RadioButton Content="复制其他 NCF 工作区的配置"
+                                             GroupName="TemplateConfigurationSource"
+                                             IsChecked="{Binding UsesOtherWorkspaceConfiguration, Mode=TwoWay}"
+                                             IsEnabled="{Binding IsTargetSelectionEnabled}"/>
+                                <Grid Margin="26,0,0,0"
+                                      ColumnDefinitions="*,Auto"
+                                      IsVisible="{Binding UsesOtherWorkspaceConfiguration}">
+                                    <TextBox Grid.Column="0"
+                                             Text="{Binding TemplateWorkspaceConfigurationSourcePath, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                             Watermark="NCF 发布目录或源码工作区"
+                                             FontFamily="Consolas,Menlo,Monaco,Courier New"
+                                             Margin="0,0,8,0"
+                                             IsEnabled="{Binding IsTargetSelectionEnabled}"/>
+                                    <Button Grid.Column="1"
+                                            Content="选择工作区"
+                                            Command="{Binding SelectTemplateWorkspaceConfigurationSourceCommand}"
+                                            Classes="secondary-action"/>
+                                </Grid>
+                            </StackPanel>
+                            <TextBlock Text="将复制 appsettings.json、App_Data/Database/SenparcConfig.config，以及来源中存在的 web.config。配置可能包含连接字符串或密钥。"
+                                       Margin="26,0,0,0"
+                                       FontSize="10.5"
+                                       Foreground="{DynamicResource SecondaryTextBrush}"
+                                       TextWrapping="Wrap"
+                                       LineHeight="16"/>
+                        </StackPanel>
+                    </Border>
                 </StackPanel>
 
                 <Border Background="{DynamicResource ToolbarBackgroundBrush}"

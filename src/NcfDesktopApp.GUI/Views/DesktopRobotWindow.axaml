@@ -7,7 +7,7 @@
         Title="NCF 桌面助手"
         Width="360"
         Height="154"
-        MinWidth="320"
+        MinWidth="0"
         MinHeight="140"
         CanResize="False"
         ShowInTaskbar="False"
@@ -128,6 +128,7 @@
 
         <!-- 宠物与信息卡之间的透明悬停桥，避免移动鼠标时卡片提前收起。 -->
         <Border x:Name="HoverBridge"
+                IsVisible="False"
                 ZIndex="15"
                 Width="30"
                 Height="54"
@@ -138,6 +139,7 @@
                 ZIndex="30"
                 Height="26"
                 MinHeight="0"
+                MaxWidth="110"
                 Padding="9,0"
                 CornerRadius="9"
                 Background="{Binding StateColor}"

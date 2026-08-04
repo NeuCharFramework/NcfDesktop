@@ -121,6 +121,13 @@ public static class DesktopSettingsStore
                 ExternalNcfPath = settings.ExternalNcfPath?.Trim() ?? string.Empty,
                 RemoteSiteUrl = settings.RemoteSiteUrl?.Trim() ?? string.Empty,
                 TemplateWorkspaceParentPath = settings.TemplateWorkspaceParentPath?.Trim() ?? string.Empty,
+                TemplateWorkspaceConfigurationSourceKind = Enum.IsDefined(
+                    typeof(TemplateWorkspaceConfigurationSourceKind),
+                    settings.TemplateWorkspaceConfigurationSourceKind)
+                    ? settings.TemplateWorkspaceConfigurationSourceKind
+                    : TemplateWorkspaceConfigurationSourceKind.TemplateDefault,
+                TemplateWorkspaceConfigurationSourcePath =
+                    settings.TemplateWorkspaceConfigurationSourcePath?.Trim() ?? string.Empty,
                 RecentNcfPaths = recentPaths,
                 AspNetCoreEnvironment = environment,
                 VoiceModelId = settings.VoiceModelId?.Trim() ?? string.Empty,

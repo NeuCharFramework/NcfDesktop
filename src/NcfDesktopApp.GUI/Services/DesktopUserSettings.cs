@@ -62,6 +62,17 @@ public sealed class DesktopUserSettings
     public string TemplateWorkspaceParentPath { get; set; } = string.Empty;
 
     /// <summary>
+    /// 新建模板工作区时使用模板默认配置、当前托管版本配置或其他工作区配置。
+    /// </summary>
+    public TemplateWorkspaceConfigurationSourceKind TemplateWorkspaceConfigurationSourceKind { get; set; } =
+        TemplateWorkspaceConfigurationSourceKind.TemplateDefault;
+
+    /// <summary>
+    /// 最近选择的配置来源工作区。当前托管版本使用固定 Runtime 路径，不写入此字段。
+    /// </summary>
+    public string TemplateWorkspaceConfigurationSourcePath { get; set; } = string.Empty;
+
+    /// <summary>
     /// 外部目标最近使用记录。
     /// </summary>
     public List<string> RecentNcfPaths { get; set; } = new();

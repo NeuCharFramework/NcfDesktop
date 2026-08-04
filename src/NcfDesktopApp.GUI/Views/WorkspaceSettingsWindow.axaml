@@ -8,6 +8,7 @@
         MinWidth="700" MinHeight="560"
         WindowStartupLocation="CenterOwner"
         ShowInTaskbar="False"
+        Opened="WorkspaceSettingsWindow_OnOpened"
         Icon="/Assets/NCF-logo.png">
 
     <Grid RowDefinitions="Auto,*,Auto"
@@ -389,6 +390,66 @@
                         </StackPanel>
                     </StackPanel>
                 </Border>
+                        </StackPanel>
+                    </Border>
+                </ScrollViewer>
+            </TabItem>
+
+            <TabItem Header="关于">
+                <ScrollViewer MinHeight="0"
+                              VerticalScrollBarVisibility="Auto"
+                              HorizontalScrollBarVisibility="Disabled">
+                    <Border Padding="20,16,20,20">
+                        <StackPanel Spacing="12">
+                            <Border Classes="settings-section">
+                                <StackPanel Spacing="12">
+                                    <StackPanel Spacing="2">
+                                        <TextBlock Text="NCF Desktop" Classes="section-title"/>
+                                        <TextBlock Text="查看包含 build 编号的当前版本，并检查是否有新版本可用。"
+                                                   Classes="section-description"/>
+                                    </StackPanel>
+
+                                    <Grid ColumnDefinitions="120,*" RowDefinitions="Auto,Auto" RowSpacing="10">
+                                        <TextBlock Grid.Row="0" Grid.Column="0"
+                                                   Text="当前版本" Classes="field-label"/>
+                                        <SelectableTextBlock Grid.Row="0" Grid.Column="1"
+                                                             Text="{Binding DesktopAppCurrentVersion, StringFormat='v{0}'}"
+                                                             FontWeight="SemiBold"/>
+
+                                        <TextBlock Grid.Row="1" Grid.Column="0"
+                                                   Text="最新版本" Classes="field-label"/>
+                                        <SelectableTextBlock Grid.Row="1" Grid.Column="1"
+                                                             Text="{Binding DesktopAppLatestVersion}"
+                                                             FontWeight="SemiBold"/>
+                                    </Grid>
+
+                                    <Border Background="#0D2563EB" CornerRadius="6" Padding="10">
+                                        <StackPanel Spacing="6">
+                                            <TextBlock Text="{Binding DesktopAppUpdateStatus}"
+                                                       Foreground="{Binding DesktopAppUpdateStatusColor}"
+                                                       FontWeight="SemiBold"
+                                                       TextWrapping="Wrap"/>
+                                            <ProgressBar IsVisible="{Binding IsDesktopAppUpdateChecking}"
+                                                         IsIndeterminate="True" Height="4"/>
+                                        </StackPanel>
+                                    </Border>
+
+                                    <WrapPanel Orientation="Horizontal">
+                                        <Button Content="重新检查"
+                                                Command="{Binding CheckDesktopAppUpdateCommand}"
+                                                IsEnabled="{Binding !IsDesktopAppUpdateChecking}"
+                                                Classes="secondary-action"
+                                                Margin="0,0,8,8"/>
+                                        <Button Content="前往 NCF 官网下载"
+                                                Command="{Binding OpenDesktopDownloadPageCommand}"
+                                                Classes="primary-action"
+                                                Margin="0,0,0,8"/>
+                                    </WrapPanel>
+
+                                    <TextBlock Text="程序启动后及每小时优先检查 NCF 官网发布信息；官网清单暂不可用时会自动回退 GitHub。下载入口始终打开 https://www.ncf.pub/Download。"
+                                               Classes="section-description"/>
+                                </StackPanel>
+                            </Border>
                         </StackPanel>
                     </Border>
                 </ScrollViewer>

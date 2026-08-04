@@ -274,6 +274,10 @@ jobs:
       ./build-tool/create-macos-app.sh --create-dmg --clean
     displayName: 'Build all Desktop platforms and macOS app/DMG'
     condition: succeeded()
+    env:
+      # MSBuild imports this environment variable as a property. The GUI embeds
+      # the same build number that is used by the release tag and asset names.
+      NcfDesktopBuildNumber: $(Build.BuildId)
 
   - bash: |
       set -euo pipefail
@@ -330,15 +334,30 @@ jobs:
       repository="${BUILD_REPOSITORY_NAME:-NeuCharFramework/NcfDesktop}"
       tag="$(desktopReleaseTag)"
       notes_file="$(Build.ArtifactStagingDirectory)/ncf-desktop-release-notes.md"
+      version="$(desktopVersion)"
+      build_id="$(Build.BuildId)"
 
       cat > "$notes_file" <<EOF
       ## NCF Desktop Release $tag
 
-      - Desktop version: $(desktopVersion)
-      - Build ID: $(Build.BuildId)
+      - Desktop version: $version
+      - Build ID: $build_id
       - Commit: $(Build.SourceVersion)
       - Assets: six self-contained platform packages plus a macOS Universal app archive and DMG
       - macOS platform ZIPs contain double-clickable .app bundles; macOS users should prefer the Universal DMG.
+
+      | File | Platform | Description |
+      | --- | --- | --- |
+      | **ncf-desktop-win-x64-v$version-build$build_id.zip** | Windows x64 | Self-contained package for 64-bit Intel/AMD Windows PCs. Extract the ZIP before running the app. |
+      | **ncf-desktop-win-arm64-v$version-build$build_id.zip** | Windows ARM64 | Self-contained package for ARM64 Windows devices. Extract the ZIP before running the app. |
+      | **ncf-desktop-osx-x64-v$version-build$build_id.zip** | macOS Intel | Double-clickable Intel .app bundle in a ZIP archive. Use this only when an architecture-specific package is required. |
+      | **ncf-desktop-osx-arm64-v$version-build$build_id.zip** | macOS Apple Silicon | Double-clickable Apple Silicon .app bundle in a ZIP archive. Use this only when an architecture-specific package is required. |
+      | **ncf-desktop-linux-x64-v$version-build$build_id.zip** | Linux x64 | Self-contained package for 64-bit Intel/AMD Linux systems. Extract the ZIP and run the included executable. |
+      | **ncf-desktop-linux-arm64-v$version-build$build_id.zip** | Linux ARM64 | Self-contained package for ARM64 Linux systems. Extract the ZIP and run the included executable. |
+      | **ncf-desktop-macos-universal-v$version-build$build_id.zip** | macOS Universal | Double-clickable .app bundle supporting both Intel and Apple Silicon Macs. |
+      | **ncf-desktop-macos-universal-v$version-build$build_id.dmg** | macOS Universal | Recommended macOS download. Open the DMG and install the Universal app. |
+      | **Source code (zip)** | Source | GitHub-generated source snapshot for this tag; it is not a ready-to-run Desktop package. |
+      | **Source code (tar.gz)** | Source | GitHub-generated source snapshot for this tag; it is not a ready-to-run Desktop package. |
       EOF
 
       assets=("$release_dir"/*)

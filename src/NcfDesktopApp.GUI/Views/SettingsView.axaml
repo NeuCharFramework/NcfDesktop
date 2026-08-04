@@ -431,26 +431,91 @@
                               ClipToBounds="True">
                             <Border Grid.Row="0" BorderBrush="{DynamicResource CardBorderBrush}"
                                     BorderThickness="0,0,0,1" Padding="12,9">
-                                <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="7">
-                                    <controls:NcfMascotView Grid.Column="0"
+                                <Grid RowDefinitions="Auto,Auto" RowSpacing="8">
+                                    <Grid Grid.Row="0" ColumnDefinitions="Auto,*,Auto,Auto,Auto" ColumnSpacing="7">
+                                        <controls:NcfMascotView Grid.Column="0"
                                                             Mascot="Cici"
                                                             Pose="{Binding AdminChatMascotPose}"
                                                             AudioMode="{Binding AudioVisualizationMode}"
                                                             AudioLevel="{Binding AudioVisualizationLevel}"
                                                             AudioBands="{Binding AudioVisualizationBands}"
                                                             Width="34" Height="34"/>
-                                    <ComboBox Grid.Column="1"
+                                        <ComboBox Grid.Column="1"
                                               ItemsSource="{Binding AdminChatSessions}"
                                               SelectedItem="{Binding SelectedAdminChatSession, Mode=TwoWay}"
                                               DisplayMemberBinding="{Binding DisplayName}"
                                               PlaceholderText="新会话将在首次发送时创建"
                                               FontSize="11"/>
-                                    <Button Grid.Column="2" Content="新会话"
+                                        <Button Grid.Column="2" Content="新会话"
                                             Command="{Binding NewAdminChatSessionCommand}"
                                             Classes="secondary-action"/>
-                                    <Button Grid.Column="3" Content="退出"
+                                        <Button Grid.Column="3" Content="删除会话"
+                                            Command="{Binding DeleteAdminChatSessionCommand}"
+                                            Classes="secondary-action"
+                                            Foreground="#DC2626"/>
+                                        <Button Grid.Column="4" Content="退出"
                                             Command="{Binding AdminLogoutCommand}"
                                             Classes="secondary-action"/>
+                                    </Grid>
+
+                                    <Grid Grid.Row="1" ColumnDefinitions="Auto,2*,3*" ColumnSpacing="7">
+                                        <TextBlock Grid.Column="0" Text="模型" FontSize="10.5"
+                                                   VerticalAlignment="Center"
+                                                   Foreground="{DynamicResource SecondaryTextBrush}"/>
+                                        <ComboBox Grid.Column="1"
+                                                  ItemsSource="{Binding AdminChatAiModelOptions}"
+                                                  SelectedItem="{Binding SelectedAdminChatAiModel, Mode=TwoWay}"
+                                                  DisplayMemberBinding="{Binding DisplayName}"
+                                                  ToolTip.Tip="{Binding AdminChatSelectedModelDescription}"
+                                                  FontSize="10.5"/>
+                                        <Expander Grid.Column="2"
+                                                  Header="{Binding AdminChatModuleSelectionText}"
+                                                  FontSize="10.5"
+                                                  HorizontalAlignment="Stretch">
+                                            <Border BorderBrush="{DynamicResource CardBorderBrush}"
+                                                    BorderThickness="1" CornerRadius="6"
+                                                    Padding="8" Margin="0,5,0,0">
+                                                <StackPanel Spacing="7">
+                                                    <TextBlock Text="勾选模块后可应用到当前会话；创建新会话时也会沿用当前选择。"
+                                                               FontSize="9.5" TextWrapping="Wrap"
+                                                               Foreground="{DynamicResource SecondaryTextBrush}"/>
+                                                    <ScrollViewer MaxHeight="150"
+                                                                  VerticalScrollBarVisibility="Auto"
+                                                                  HorizontalScrollBarVisibility="Disabled">
+                                                        <ItemsControl ItemsSource="{Binding AdminChatModuleOptions}">
+                                                            <ItemsControl.ItemTemplate>
+                                                                <DataTemplate x:DataType="models:AdminChatModuleOption">
+                                                                    <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                                                                              IsEnabled="{Binding IsSelectionEnabled}"
+                                                                              ToolTip.Tip="{Binding Description}"
+                                                                              Margin="0,2">
+                                                                        <StackPanel Orientation="Horizontal" Spacing="5">
+                                                                            <TextBlock Text="{Binding DisplayLabel}" FontSize="10"/>
+                                                                            <TextBlock Text="必选" FontSize="9"
+                                                                                       IsVisible="{Binding Module.IsRequired}"
+                                                                                       Foreground="#7C3AED"/>
+                                                                            <TextBlock Text="已关联" FontSize="9"
+                                                                                       IsVisible="{Binding IsAssociated}"
+                                                                                       Foreground="#059669"/>
+                                                                        </StackPanel>
+                                                                    </CheckBox>
+                                                                </DataTemplate>
+                                                            </ItemsControl.ItemTemplate>
+                                                        </ItemsControl>
+                                                    </ScrollViewer>
+                                                    <TextBlock Text="当前站点没有返回可选模块。"
+                                                               IsVisible="{Binding !HasAdminChatModuleOptions}"
+                                                               FontSize="9.5"
+                                                               Foreground="{DynamicResource SecondaryTextBrush}"/>
+                                                    <Button Content="应用模块关联"
+                                                            Command="{Binding ApplyAdminChatModulesCommand}"
+                                                            IsVisible="{Binding HasSelectedAdminChatSession}"
+                                                            Classes="secondary-action"
+                                                            HorizontalAlignment="Right"/>
+                                                </StackPanel>
+                                            </Border>
+                                        </Expander>
+                                    </Grid>
                                 </Grid>
                             </Border>
 
@@ -470,7 +535,7 @@
                                                 <Border Background="#0A64748B" CornerRadius="8"
                                                         Padding="10,8" Margin="0,0,0,8">
                                                     <StackPanel Spacing="4">
-                                                        <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="7">
+                                                        <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="7">
                                                             <TextBlock Grid.Column="0" Text="{Binding SenderName}"
                                                                        Foreground="{Binding SenderColor}"
                                                                        FontWeight="SemiBold" FontSize="10.5"/>
@@ -497,6 +562,20 @@
                                                                               StrokeLineCap="Round"/>
                                                                     </Canvas>
                                                                 </Viewbox>
+                                                            </Button>
+                                                            <Button Grid.Column="3"
+                                                                    Click="AdminChatDeleteMessageButton_OnClick"
+                                                                    IsVisible="{Binding CanDelete}"
+                                                                    Width="30"
+                                                                    Height="26"
+                                                                    Padding="0"
+                                                                    HorizontalContentAlignment="Center"
+                                                                    VerticalContentAlignment="Center"
+                                                                    Classes="secondary-action"
+                                                                    Foreground="#DC2626"
+                                                                    ToolTip.Tip="删除此条消息">
+                                                                <TextBlock Text="×" FontSize="17" FontWeight="Bold"
+                                                                           IsHitTestVisible="False"/>
                                                             </Button>
                                                         </Grid>
                                                         <SelectableTextBlock Text="{Binding Content}"

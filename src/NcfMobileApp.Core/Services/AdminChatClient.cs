@@ -1,27 +1,11 @@
-/*----------------------------------------------------------------
-    Copyright (C) 2026 Senparc
-
-    文件名：AdminChatClient.cs
-    文件功能描述：受安全地址策略保护的 Admin JWT 登录与聊天 API 客户端
-
-    创建标识：Senparc - 20260726
-----------------------------------------------------------------*/
-
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
 using System.Net;
-using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
-using System.Threading;
-using System.Threading.Tasks;
-using NcfDesktopApp.GUI.Models;
+using NcfMobileApp.Core.Models;
 
-namespace NcfDesktopApp.GUI.Services;
+namespace NcfMobileApp.Core.Services;
 
 public sealed class AdminChatClient
 {
@@ -73,36 +57,9 @@ public sealed class AdminChatClient
             throw new AdminChatApiException("登录响应中没有有效的管理员令牌。", true);
         }
 
-        return await AuthenticateWithAccessTokenAsync(
-                siteUrl,
-                login.UserName,
-                login.Token,
-                login.TokenExpiresUtc,
-                cancellationToken)
-            .ConfigureAwait(false);
-    }
-
-    /// <summary>
-    /// 接受由 DesktopBridge 一次性换票返回的 JWT。令牌仍需通过 AdminChat AdminOnly API 二次验证。
-    /// </summary>
-    public async Task<AdminChatAuthentication> AuthenticateWithAccessTokenAsync(
-        string siteUrl,
-        string userName,
-        string accessToken,
-        DateTimeOffset? expiresUtc,
-        CancellationToken cancellationToken = default)
-    {
-        ClearAuthentication();
-        if (string.IsNullOrWhiteSpace(userName) || string.IsNullOrWhiteSpace(accessToken) ||
-            expiresUtc is not { } tokenExpiresUtc || tokenExpiresUtc <= DateTimeOffset.UtcNow.AddSeconds(10))
-        {
-            throw new AdminChatApiException("WebView 自动授权返回了无效或已过期的管理员令牌。", true);
-        }
-
-        var candidate = new AdminChatAuthentication(userName.Trim(), accessToken, expiresUtc);
+        var candidate = new AdminChatAuthentication(login.UserName, login.Token, login.TokenExpiresUtc);
         try
         {
-            // 由 AdminChat 的 AdminOnly 策略做最终授权判断，而不是信任登录响应中的角色文本。
             await GetSessionsCoreAsync(siteUrl, candidate.AccessToken, cancellationToken).ConfigureAwait(false);
         }
         catch
@@ -129,23 +86,13 @@ public sealed class AdminChatClient
 
     public async Task<int> CreateSessionAsync(
         string siteUrl,
-        int aiModelId,
-        IReadOnlyCollection<string>? moduleUids,
         CancellationToken cancellationToken = default)
     {
         var data = await SendAsync<AdminChatCreateSessionData>(
             siteUrl,
             HttpMethod.Post,
             $"{AdminChatApi}.CreateSessionAsync",
-            new
-            {
-                initialMessage = string.Empty,
-                aiModelId = Math.Max(0, aiModelId),
-                moduleUids = moduleUids?
-                    .Where(uid => !string.IsNullOrWhiteSpace(uid))
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .ToArray() ?? Array.Empty<string>()
-            },
+            new { initialMessage = string.Empty, aiModelId = 0, moduleUids = Array.Empty<string>() },
             GetRequiredAccessToken(),
             TimeSpan.FromSeconds(30),
             cancellationToken).ConfigureAwait(false);
@@ -158,14 +105,7 @@ public sealed class AdminChatClient
         return data.SessionId;
     }
 
-    public Task<int> CreateSessionAsync(
-        string siteUrl,
-        CancellationToken cancellationToken = default)
-    {
-        return CreateSessionAsync(siteUrl, 0, Array.Empty<string>(), cancellationToken);
-    }
-
-    public async Task<AdminChatSessionDetail?> GetSessionDetailAsync(
+    public async Task<IReadOnlyList<AdminChatMessage>> GetSessionMessagesAsync(
         string siteUrl,
         int sessionId,
         CancellationToken cancellationToken = default)
@@ -177,137 +117,27 @@ public sealed class AdminChatClient
             body: null,
             accessToken: GetRequiredAccessToken(),
             timeout: TimeSpan.FromSeconds(30),
-            cancellationToken: cancellationToken).ConfigureAwait(false);
+            cancellationToken).ConfigureAwait(false);
 
-        return data.Session;
-    }
-
-    public async Task<IReadOnlyList<AdminChatMessage>> GetSessionMessagesAsync(
-        string siteUrl,
-        int sessionId,
-        CancellationToken cancellationToken = default)
-    {
-        var session = await GetSessionDetailAsync(siteUrl, sessionId, cancellationToken).ConfigureAwait(false);
-        return session?.Messages
+        return data.Session?.Messages
                    .OrderBy(message => message.Sequence)
                    .ThenBy(message => message.Id)
                    .ToArray()
-               ?? Array.Empty<AdminChatMessage>();
-    }
-
-    public async Task<IReadOnlyList<AdminChatAiModelOption>> GetAiModelOptionsAsync(
-        string siteUrl,
-        CancellationToken cancellationToken = default)
-    {
-        var data = await SendAsync<AdminChatAiModelOptionsData>(
-            siteUrl,
-            HttpMethod.Get,
-            $"{AdminChatApi}.GetAiModelOptionsAsync",
-            body: null,
-            accessToken: GetRequiredAccessToken(),
-            timeout: TimeSpan.FromSeconds(30),
-            cancellationToken: cancellationToken).ConfigureAwait(false);
-
-        return data.Models
-            .OrderByDescending(model => model.IsDefault)
-            .ThenBy(model => model.DisplayName, StringComparer.CurrentCultureIgnoreCase)
-            .ToArray();
-    }
-
-    public async Task<IReadOnlyList<AdminChatAvailableModule>> GetAvailableModulesAsync(
-        string siteUrl,
-        CancellationToken cancellationToken = default)
-    {
-        var data = await SendAsync<AdminChatAvailableModulesData>(
-            siteUrl,
-            HttpMethod.Get,
-            $"{AdminChatApi}.GetAvailableModulesAsync",
-            body: null,
-            accessToken: GetRequiredAccessToken(),
-            timeout: TimeSpan.FromSeconds(30),
-            cancellationToken: cancellationToken).ConfigureAwait(false);
-
-        return data.Modules
-            .OrderBy(module => module.DisplayName, StringComparer.CurrentCultureIgnoreCase)
-            .ToArray();
-    }
-
-    public async Task DeleteSessionAsync(
-        string siteUrl,
-        int sessionId,
-        CancellationToken cancellationToken = default)
-    {
-        _ = await SendAsync<string>(
-            siteUrl,
-            HttpMethod.Delete,
-            $"{AdminChatApi}.DeleteSessionAsync?sessionId={sessionId}",
-            body: null,
-            accessToken: GetRequiredAccessToken(),
-            timeout: TimeSpan.FromSeconds(30),
-            cancellationToken: cancellationToken).ConfigureAwait(false);
-    }
-
-    public async Task DeleteMessagesAsync(
-        string siteUrl,
-        int sessionId,
-        IReadOnlyCollection<int> messageIds,
-        CancellationToken cancellationToken = default)
-    {
-        var ids = messageIds.Where(id => id > 0).Distinct().ToArray();
-        if (ids.Length == 0)
-        {
-            throw new AdminChatApiException("请至少选择一条可删除的消息。");
-        }
-
-        _ = await SendAsync<string>(
-            siteUrl,
-            HttpMethod.Delete,
-            $"{AdminChatApi}.DeleteMessagesAsync?sessionId={sessionId}&messageIds={string.Join(',', ids)}",
-            body: null,
-            accessToken: GetRequiredAccessToken(),
-            timeout: TimeSpan.FromSeconds(30),
-            cancellationToken: cancellationToken).ConfigureAwait(false);
-    }
-
-    public async Task SetModulesForSessionAsync(
-        string siteUrl,
-        int sessionId,
-        IReadOnlyCollection<AdminChatAvailableModule> modules,
-        CancellationToken cancellationToken = default)
-    {
-        var requestModules = modules
-            .Where(module => !string.IsNullOrWhiteSpace(module.Uid))
-            .GroupBy(module => module.Uid, StringComparer.OrdinalIgnoreCase)
-            .Select(group => group.First())
-            .Select(module => new { uid = module.Uid, name = module.Name, version = module.Version })
-            .ToArray();
-        _ = await SendAsync<string>(
-            siteUrl,
-            HttpMethod.Post,
-            $"{AdminChatApi}.SetSessionModulesAsync",
-            new { sessionId, modules = requestModules },
-            GetRequiredAccessToken(),
-            TimeSpan.FromSeconds(30),
-            cancellationToken).ConfigureAwait(false);
+               ?? [];
     }
 
     public async Task<IReadOnlyList<AdminChatMessage>> SendMessageAsync(
         string siteUrl,
         int sessionId,
         string content,
-        int aiModelId = 0,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(content))
-        {
-            throw new AdminChatApiException("请输入消息内容。");
-        }
-
+        EnsureMessage(content);
         var data = await SendAsync<AdminChatSendMessageData>(
             siteUrl,
             HttpMethod.Post,
             $"{AdminChatApi}.SendMessageAsync",
-            new { sessionId, aiModelId = Math.Max(0, aiModelId), content = content.Trim() },
+            new { sessionId, aiModelId = 0, content = content.Trim() },
             GetRequiredAccessToken(),
             TimeSpan.FromMinutes(3),
             cancellationToken).ConfigureAwait(false);
@@ -321,26 +151,21 @@ public sealed class AdminChatClient
         string siteUrl,
         int sessionId,
         string content,
-        int aiModelId = 0,
         Action<AdminChatMessage>? onUserMessage = null,
         Action<string>? onToken = null,
         Action<AdminChatMessage>? onAssistantMessage = null,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(content))
+        EnsureMessage(content);
+        if (!SiteEndpointPolicy.TryCreateEndpoint(siteUrl, AdminChatStreamApi, out var endpoint, out var error))
         {
-            throw new AdminChatApiException("请输入消息内容。");
-        }
-
-        if (!SiteEndpointPolicy.TryCreateEndpoint(siteUrl, AdminChatStreamApi, out var endpoint, out var endpointError))
-        {
-            throw new AdminChatApiException(endpointError);
+            throw new AdminChatApiException(error);
         }
 
         using var request = new HttpRequestMessage(HttpMethod.Post, endpoint);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", GetRequiredAccessToken());
         request.Content = JsonContent.Create(
-            new { sessionId, aiModelId = Math.Max(0, aiModelId), content = content.Trim() },
+            new { sessionId, aiModelId = 0, content = content.Trim() },
             options: JsonOptions);
 
         using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -366,30 +191,24 @@ public sealed class AdminChatClient
 
         using (response)
         {
-            if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
-            {
-                ClearAuthentication();
-                throw new AdminChatApiException("管理员身份无效、已过期或不具备 AdminOnly 权限。", true);
-            }
-
-            // 兼容尚未部署流式接口的旧站点：桌面端仍保留即时本地回显，但回复退回原有整包 API。
+            HandleAuthenticationFailure(response.StatusCode);
             if (response.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.MethodNotAllowed)
             {
-                var fallbackMessages = await SendMessageAsync(siteUrl, sessionId, content, aiModelId, cancellationToken)
+                var fallback = await SendMessageAsync(siteUrl, sessionId, content, cancellationToken)
                     .ConfigureAwait(false);
-                var fallbackUserMessage = fallbackMessages.FirstOrDefault(message => message.IsUser);
-                var fallbackAssistantMessage = fallbackMessages.FirstOrDefault(message => message.IsAgent);
-                if (fallbackUserMessage != null)
+                var user = fallback.FirstOrDefault(message => message.IsUser);
+                var assistant = fallback.FirstOrDefault(message => message.IsAgent);
+                if (user != null)
                 {
-                    onUserMessage?.Invoke(fallbackUserMessage);
+                    onUserMessage?.Invoke(user);
                 }
 
-                if (fallbackAssistantMessage != null)
+                if (assistant != null)
                 {
-                    onAssistantMessage?.Invoke(fallbackAssistantMessage);
+                    onAssistantMessage?.Invoke(assistant);
                 }
 
-                return new AdminChatStreamResult(fallbackUserMessage, fallbackAssistantMessage);
+                return new AdminChatStreamResult(user, assistant);
             }
 
             if (!response.IsSuccessStatusCode)
@@ -401,24 +220,15 @@ public sealed class AdminChatClient
             AdminChatMessage? assistantMessage = null;
             var eventName = string.Empty;
             var eventData = new StringBuilder();
-
-            await using var responseStream = await response.Content
-                .ReadAsStreamAsync(timeoutSource.Token)
-                .ConfigureAwait(false);
-            using var reader = new StreamReader(responseStream);
+            await using var stream = await response.Content.ReadAsStreamAsync(timeoutSource.Token).ConfigureAwait(false);
+            using var reader = new StreamReader(stream);
 
             while (await reader.ReadLineAsync(timeoutSource.Token).ConfigureAwait(false) is { } line)
             {
                 if (line.Length == 0)
                 {
-                    HandleStreamEvent(
-                        eventName,
-                        eventData.ToString(),
-                        ref userMessage,
-                        ref assistantMessage,
-                        onUserMessage,
-                        onToken,
-                        onAssistantMessage);
+                    HandleStreamEvent(eventName, eventData.ToString(), ref userMessage, ref assistantMessage,
+                        onUserMessage, onToken, onAssistantMessage);
                     eventName = string.Empty;
                     eventData.Clear();
                     continue;
@@ -441,14 +251,8 @@ public sealed class AdminChatClient
 
             if (eventData.Length > 0)
             {
-                HandleStreamEvent(
-                    eventName,
-                    eventData.ToString(),
-                    ref userMessage,
-                    ref assistantMessage,
-                    onUserMessage,
-                    onToken,
-                    onAssistantMessage);
+                HandleStreamEvent(eventName, eventData.ToString(), ref userMessage, ref assistantMessage,
+                    onUserMessage, onToken, onAssistantMessage);
             }
 
             if (userMessage == null || assistantMessage == null)
@@ -486,15 +290,12 @@ public sealed class AdminChatClient
                     }
                     break;
                 case "token":
-                    using (var tokenDocument = JsonDocument.Parse(eventData))
+                    using (var document = JsonDocument.Parse(eventData))
                     {
-                        if (tokenDocument.RootElement.TryGetProperty("text", out var textElement))
+                        if (document.RootElement.TryGetProperty("text", out var element) &&
+                            element.GetString() is { Length: > 0 } text)
                         {
-                            var text = textElement.GetString();
-                            if (!string.IsNullOrEmpty(text))
-                            {
-                                onToken?.Invoke(text);
-                            }
+                            onToken?.Invoke(text);
                         }
                     }
                     break;
@@ -506,10 +307,10 @@ public sealed class AdminChatClient
                     }
                     break;
                 case "error":
-                    using (var errorDocument = JsonDocument.Parse(eventData))
+                    using (var document = JsonDocument.Parse(eventData))
                     {
-                        var message = errorDocument.RootElement.TryGetProperty("message", out var messageElement)
-                            ? messageElement.GetString()
+                        var message = document.RootElement.TryGetProperty("message", out var element)
+                            ? element.GetString()
                             : null;
                         throw new AdminChatApiException(
                             string.IsNullOrWhiteSpace(message) ? "Agent 回复失败。" : message);
@@ -536,9 +337,10 @@ public sealed class AdminChatClient
             HttpMethod.Get,
             $"{AdminChatApi}.GetSessionListAsync?pageIndex=1&pageSize=50",
             body: null,
-            accessToken: accessToken,
-            timeout: TimeSpan.FromSeconds(30),
-            cancellationToken: cancellationToken).ConfigureAwait(false);
+            accessToken,
+            TimeSpan.FromSeconds(30),
+            cancellationToken).ConfigureAwait(false);
+
         return data.Sessions
             .OrderByDescending(session => session.LastMessageTime)
             .ToArray();
@@ -553,9 +355,9 @@ public sealed class AdminChatClient
         TimeSpan timeout,
         CancellationToken cancellationToken)
     {
-        if (!SiteEndpointPolicy.TryCreateEndpoint(siteUrl, relativePath, out var endpoint, out var endpointError))
+        if (!SiteEndpointPolicy.TryCreateEndpoint(siteUrl, relativePath, out var endpoint, out var error))
         {
-            throw new AdminChatApiException(endpointError);
+            throw new AdminChatApiException(error);
         }
 
         using var request = new HttpRequestMessage(method, endpoint);
@@ -589,12 +391,7 @@ public sealed class AdminChatClient
 
         using (response)
         {
-            if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
-            {
-                ClearAuthentication();
-                throw new AdminChatApiException("管理员身份无效、已过期或不具备 AdminOnly 权限。", true);
-            }
-
+            HandleAuthenticationFailure(response.StatusCode);
             if (!response.IsSuccessStatusCode)
             {
                 throw new AdminChatApiException($"Admin Chat 返回 HTTP {(int)response.StatusCode}。");
@@ -620,6 +417,17 @@ public sealed class AdminChatClient
         }
     }
 
+    private void HandleAuthenticationFailure(HttpStatusCode statusCode)
+    {
+        if (statusCode is not (HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden))
+        {
+            return;
+        }
+
+        ClearAuthentication();
+        throw new AdminChatApiException("管理员身份无效、已过期或不具备 AdminOnly 权限。", true);
+    }
+
     private string GetRequiredAccessToken()
     {
         if (!IsAuthenticated || _authentication == null)
@@ -631,8 +439,11 @@ public sealed class AdminChatClient
         return _authentication.AccessToken;
     }
 
-    internal static bool TryCreateEndpoint(string siteUrl, string relativePath, out Uri endpoint)
+    private static void EnsureMessage(string content)
     {
-        return SiteEndpointPolicy.TryCreateEndpoint(siteUrl, relativePath, out endpoint, out _);
+        if (string.IsNullOrWhiteSpace(content))
+        {
+            throw new AdminChatApiException("请输入消息内容。");
+        }
     }
 }
