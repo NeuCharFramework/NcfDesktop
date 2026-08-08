@@ -97,26 +97,41 @@ public sealed class DesktopUserSettingsTests
             compactStatusWidth: 64);
 
         Assert.AreEqual(400, expanded.WindowWidth, .001);
-        Assert.AreEqual(174, collapsed.WindowWidth, .001);
+        Assert.AreEqual(156, collapsed.WindowWidth, .001);
         Assert.IsTrue(collapsed.WindowWidth < expanded.WindowWidth);
         Assert.AreEqual(154, expanded.WindowHeight, .001);
-        Assert.AreEqual(128, collapsed.WindowHeight, .001);
-        Assert.IsTrue(collapsed.WindowHeight < expanded.WindowHeight);
+        Assert.AreEqual(expanded.WindowHeight, collapsed.WindowHeight, .001);
         Assert.AreEqual(13, expanded.MascotTop, .001);
-        Assert.AreEqual(0, collapsed.MascotTop, .001);
+        Assert.AreEqual(expanded.MascotTop, collapsed.MascotTop, .001);
         Assert.AreEqual(expanded.CardLeft, collapsed.CardLeft, .001);
+        Assert.AreEqual(76, collapsed.StatusLeft, .001);
+        Assert.AreEqual(19, collapsed.StatusTop, .001);
+    }
+
+    [DataTestMethod]
+    [DataRow(.5)]
+    [DataRow(1.0)]
+    [DataRow(1.2)]
+    [DataRow(1.3)]
+    [DataRow(2.0)]
+    public void DesktopRobotWindow_ExpandingCard_KeepsMascotAtSamePosition(double scale)
+    {
+        var expanded = DesktopRobotWindow.CalculateLayout(
+            scale,
+            isCardExpanded: true,
+            compactStatusWidth: 64);
+        var collapsed = DesktopRobotWindow.CalculateLayout(
+            scale,
+            isCardExpanded: false,
+            compactStatusWidth: 64);
+
+        Assert.AreEqual(expanded.WindowHeight, collapsed.WindowHeight, .001);
+        Assert.AreEqual(expanded.MascotTop, collapsed.MascotTop, .001);
+        Assert.AreEqual(12, 88 * scale - collapsed.StatusLeft, .001);
         Assert.AreEqual(
-            26,
-            DesktopRobotWindow.CalculateWindowTopOffset(
-                scale: 1,
-                isCardExpanded: false,
-                displayScaling: 2));
-        Assert.AreEqual(
-            0,
-            DesktopRobotWindow.CalculateWindowTopOffset(
-                scale: 1,
-                isCardExpanded: true,
-                displayScaling: 2));
+            8,
+            collapsed.StatusTop + 26 - (collapsed.MascotTop + 24 * scale),
+            .001);
     }
 
     [TestMethod]
@@ -131,7 +146,7 @@ public sealed class DesktopUserSettingsTests
             isCardExpanded: false);
 
         Assert.IsTrue(collapsedRegions.Any(region => region.Contains(new Avalonia.Point(64, 64))));
-        Assert.IsTrue(collapsedRegions.Any(region => region.Contains(new Avalonia.Point(134, 21))));
+        Assert.IsTrue(collapsedRegions.Any(region => region.Contains(new Avalonia.Point(120, 35))));
         Assert.IsFalse(collapsedRegions.Any(region => region.Contains(new Avalonia.Point(160, 100))));
         Assert.IsFalse(collapsedRegions.Any(region => region.Contains(new Avalonia.Point(1, 1))));
 

@@ -4,6 +4,7 @@ using System.Runtime.InteropServices;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
+using Avalonia.Platform;
 using AppKit;
 using ObjCRuntime;
 
@@ -29,11 +30,16 @@ internal static class FloatingWindowPlatformService
 
         if (OperatingSystem.IsWindows())
         {
+            window.ExtendClientAreaToDecorationsHint = false;
+            window.ExtendClientAreaChromeHints = ExtendClientAreaChromeHints.Default;
             ConfigureWindowsWindow(window);
         }
         else if (OperatingSystem.IsMacOS())
         {
-            ConfigureMacOsWindow(window);
+            // macOS 的 Avalonia Native 透明窗口需要把客户区扩展到无边框区域。
+            // 交由 Avalonia 设置真正的透明 surface，不再覆盖 NSWindow 背景属性。
+            window.ExtendClientAreaToDecorationsHint = true;
+            window.ExtendClientAreaChromeHints = ExtendClientAreaChromeHints.NoChrome;
         }
     }
 
@@ -144,25 +150,6 @@ internal static class FloatingWindowPlatformService
         catch (EntryPointNotFoundException)
         {
             // 同上。
-        }
-    }
-
-    private static void ConfigureMacOsWindow(Window window)
-    {
-        if (!TryGetNativeWindow(window, out var nativeWindow))
-        {
-            return;
-        }
-
-        try
-        {
-            nativeWindow.IsOpaque = false;
-            nativeWindow.HasShadow = false;
-            nativeWindow.BackgroundColor = NSColor.Clear;
-        }
-        catch (Exception)
-        {
-            // Avalonia Native 以外的 macOS 后端允许安全降级。
         }
     }
 

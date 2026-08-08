@@ -6,7 +6,7 @@
         x:DataType="vm:DesktopRobotViewModel"
         Title="NCF 桌面助手"
         Width="174"
-        Height="128"
+        Height="154"
         MinWidth="0"
         MinHeight="0"
         CanResize="False"
@@ -18,7 +18,7 @@
 
     <Canvas x:Name="RootSurface"
           Width="158"
-          Height="112"
+          Height="138"
           Margin="8"
           HorizontalAlignment="Left"
           VerticalAlignment="Top"
@@ -149,7 +149,7 @@
                 Height="54"
                 Background="#01000000"/>
 
-        <!-- 状态始终紧贴宠物右侧，尺寸固定，不随信息卡或宠物缩放。 -->
+        <!-- 状态轻微覆盖宠物右上角，缩放时始终锚定可见圆形外圈。 -->
         <Border x:Name="CompactStatus"
                 ZIndex="30"
                 Height="26"

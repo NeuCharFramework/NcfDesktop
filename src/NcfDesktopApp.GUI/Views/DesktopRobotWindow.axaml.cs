@@ -34,6 +34,7 @@ namespace NcfDesktopApp.GUI.Views;
 public partial class DesktopRobotWindow : Window
 {
     private const double MascotSurfaceSize = 112;
+    private const double MascotCircleTop = 24;
     private const double MascotCircleRight = 88;
     private const double CardWidth = 342;
     private const double CardHeight = 138;
@@ -43,6 +44,8 @@ public partial class DesktopRobotWindow : Window
     private const double CompactStatusMaxWidth = 110;
     private const double CompactStatusHeight = 26;
     private const double CompactStatusCornerRadius = 9;
+    private const double CompactStatusHorizontalOverlap = 12;
+    private const double CompactStatusVerticalOverlap = 8;
     private const double CardCornerRadius = 18;
     private const double NeuBellBadgeSize = 30;
     private const double NeuBellBadgeTop = 3;
@@ -70,6 +73,7 @@ public partial class DesktopRobotWindow : Window
     public DesktopRobotWindow()
     {
         InitializeComponent();
+        FloatingWindowPlatformService.ConfigureTransparentWindow(this);
         DataContextChanged += OnDataContextChanged;
         _globalPointerTimer.Tick += (_, _) => UpdateGlobalGaze();
         _placementSaveTimer.Tick += (_, _) =>
@@ -151,11 +155,10 @@ public partial class DesktopRobotWindow : Window
                 }
 
                 ApplyScale(requestedScale, screen, preserveScreenAnchor: false);
-                var canonicalPosition = GetInitialPlacement(
+                Position = GetInitialPlacement(
                     requestedPosition.Value,
                     size,
                     screen.WorkingArea);
-                Position = GetDisplayedPosition(canonicalPosition, screen);
                 _hasRestoredInitialPlacement = true;
                 return;
             }
@@ -179,8 +182,7 @@ public partial class DesktopRobotWindow : Window
         var defaultPosition = DesktopRobotPlacementPolicy.GetDefaultPosition(
             windowSize,
             screen.WorkingArea);
-        var canonicalPosition = GetInitialPlacement(defaultPosition, windowSize, screen.WorkingArea);
-        Position = GetDisplayedPosition(canonicalPosition, screen);
+        Position = GetInitialPlacement(defaultPosition, windowSize, screen.WorkingArea);
     }
 
     private PixelPoint GetInitialPlacement(
@@ -220,38 +222,6 @@ public partial class DesktopRobotWindow : Window
             Math.Clamp(requestedY, workingArea.Y, maximumY));
     }
 
-    private PixelPoint GetDisplayedPosition(PixelPoint canonicalPosition, Screen screen) =>
-        GetDisplayedPosition(canonicalPosition, screen, _currentScale, _isCardExpanded);
-
-    private static PixelPoint GetDisplayedPosition(
-        PixelPoint canonicalPosition,
-        Screen screen,
-        double scale,
-        bool isCardExpanded) =>
-        new(
-            canonicalPosition.X,
-            canonicalPosition.Y + CalculateWindowTopOffset(scale, isCardExpanded, screen.Scaling));
-
-    private static PixelPoint GetCanonicalPosition(
-        PixelPoint displayedPosition,
-        Screen screen,
-        double scale,
-        bool isCardExpanded) =>
-        new(
-            displayedPosition.X,
-            displayedPosition.Y - CalculateWindowTopOffset(scale, isCardExpanded, screen.Scaling));
-
-    internal static int CalculateWindowTopOffset(
-        double scale,
-        bool isCardExpanded,
-        double displayScaling)
-    {
-        var expandedLayout = CalculateLayout(scale, isCardExpanded: true, compactStatusWidth: 0);
-        var currentLayout = CalculateLayout(scale, isCardExpanded, compactStatusWidth: 0);
-        var scaling = displayScaling > 0 ? displayScaling : 1;
-        return (int)Math.Round((expandedLayout.MascotTop - currentLayout.MascotTop) * scaling);
-    }
-
     private void ApplyScale(double requestedScale, Screen? preferredScreen = null, bool preserveScreenAnchor = true)
     {
         if (_isApplyingScale)
@@ -282,15 +252,12 @@ public partial class DesktopRobotWindow : Window
             }
 
             var oldSize = screen == null ? default : GetWindowPixelSize(screen, _currentScale);
-            var oldCanonicalPosition = screen == null
-                ? Position
-                : GetCanonicalPosition(Position, screen, _currentScale, _isCardExpanded);
             var oldRightGap = screen == null
                 ? 0
-                : screen.WorkingArea.Right - (oldCanonicalPosition.X + oldSize.Width);
+                : screen.WorkingArea.Right - (Position.X + oldSize.Width);
             var oldBottomGap = screen == null
                 ? 0
-                : screen.WorkingArea.Bottom - (oldCanonicalPosition.Y + oldSize.Height);
+                : screen.WorkingArea.Bottom - (Position.Y + oldSize.Height);
 
             _currentScale = normalizedScale;
             var layout = CalculateLayout(normalizedScale, _isCardExpanded, GetCompactStatusWidth());
@@ -330,17 +297,12 @@ public partial class DesktopRobotWindow : Window
             var anchoredPosition = new PixelPoint(
                 screen.WorkingArea.Right - oldRightGap - newSize.Width,
                 screen.WorkingArea.Bottom - oldBottomGap - newSize.Height);
-            var canonicalPosition = DesktopRobotPlacementPolicy.IsFullyVisible(
+            Position = DesktopRobotPlacementPolicy.IsFullyVisible(
                 anchoredPosition,
                 newSize,
                 screen.WorkingArea)
                 ? anchoredPosition
                 : DesktopRobotPlacementPolicy.GetDefaultPosition(newSize, screen.WorkingArea);
-            Position = GetDisplayedPosition(
-                canonicalPosition,
-                screen,
-                normalizedScale,
-                _isCardExpanded);
         }
         finally
         {
@@ -366,19 +328,23 @@ public partial class DesktopRobotWindow : Window
         var mascotSize = MascotSurfaceSize * scale;
         var cardLeft = MascotCircleRight * scale - CardOverlap;
         var circleRight = MascotCircleRight * scale;
-        var statusLeft = circleRight + 6;
+        var circleTop = MascotCircleTop * scale;
+        var statusLeft = Math.Max(0, circleRight - CompactStatusHorizontalOverlap);
         var safeStatusWidth = double.IsFinite(compactStatusWidth)
             ? Math.Max(0, compactStatusWidth)
             : 0;
         var expandedRootWidth = Math.Max(mascotSize, cardLeft + CardWidth);
         var collapsedRootWidth = Math.Max(mascotSize, statusLeft + safeStatusWidth);
         var rootWidth = isCardExpanded ? expandedRootWidth : collapsedRootWidth;
-        var rootHeight = isCardExpanded
-            ? Math.Max(mascotSize, CardHeight)
-            : mascotSize;
+        // 高度始终按展开状态保留；透明空白由原生命中区域（Windows）或鼠标穿透
+        // （macOS）释放。这样缩放低于 CardHeight / MascotSurfaceSize 时，展开卡片
+        // 不需要移动原生窗口，宠物的屏幕坐标也不会发生跳变。
+        var rootHeight = Math.Max(mascotSize, CardHeight);
         var mascotTop = (rootHeight - mascotSize) / 2;
         var cardTop = (rootHeight - CardHeight) / 2;
-        var statusTop = Math.Max(0, mascotTop - 3);
+        var statusTop = Math.Max(
+            0,
+            mascotTop + circleTop - (CompactStatusHeight - CompactStatusVerticalOverlap));
 
         return new DesktopRobotLayout(
             rootWidth,
@@ -478,21 +444,11 @@ public partial class DesktopRobotWindow : Window
             return;
         }
 
-        var screen = Screens.ScreenFromWindow(this) ?? Screens.Primary ?? Screens.All.FirstOrDefault();
-        var canonicalPosition = screen == null
-            ? Position
-            : GetCanonicalPosition(Position, screen, _currentScale, _isCardExpanded);
-
         _isCardExpanded = isExpanded;
         ExpandedCard.IsVisible = isExpanded;
         HideRobotButton.IsVisible = isExpanded;
         HoverBridge.IsVisible = isExpanded;
         UpdateWindowExtent();
-
-        if (_isOpened && screen != null)
-        {
-            Position = GetDisplayedPosition(canonicalPosition, screen);
-        }
     }
 
     private void OnDataContextChanged(object? sender, EventArgs e)
@@ -548,11 +504,7 @@ public partial class DesktopRobotWindow : Window
     {
         if (_isOpened && WorkspaceViewModel != null)
         {
-            var screen = Screens.ScreenFromWindow(this) ?? Screens.Primary ?? Screens.All.FirstOrDefault();
-            var position = screen == null
-                ? Position
-                : GetCanonicalPosition(Position, screen, _currentScale, _isCardExpanded);
-            WorkspaceViewModel.SaveDesktopRobotPlacement(position, _currentScale);
+            WorkspaceViewModel.SaveDesktopRobotPlacement(Position, _currentScale);
         }
     }
 
@@ -566,10 +518,7 @@ public partial class DesktopRobotWindow : Window
         // Closing 发生在原生窗口实现释放之前。先保存仍然有效的位置，再把窗口标记为
         // 非活动并解除属性订阅，避免保存位置触发 RestorePlacementOrUseDefault，进而在
         // Closed 阶段通过 Screens.ScreenFromWindow 访问已释放的平台窗口。
-        var screen = Screens.ScreenFromWindow(this) ?? Screens.Primary ?? Screens.All.FirstOrDefault();
-        var position = screen == null
-            ? Position
-            : GetCanonicalPosition(Position, screen, _currentScale, _isCardExpanded);
+        var position = Position;
         var workspaceViewModel = _workspaceViewModel;
 
         _isOpened = false;
