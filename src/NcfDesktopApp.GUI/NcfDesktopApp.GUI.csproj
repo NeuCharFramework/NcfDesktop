@@ -10,7 +10,7 @@
     -->
     <TargetFramework>net8.0</TargetFramework>
     <RuntimeIdentifiers>win-x64;win-arm64;osx-x64;osx-arm64;linux-x64;linux-arm64</RuntimeIdentifiers>
-    <Version>0.7.0</Version>
+    <Version>0.8.0</Version>
     <!-- Azure 发布时注入 Build.BuildId，使“设置”中的版本与下载文件名/Release 标签一致。 -->
     <InformationalVersion Condition="'$(NcfDesktopBuildNumber)' != ''">$(Version)-build$(NcfDesktopBuildNumber)</InformationalVersion>
     <IncludeSourceRevisionInInformationalVersion Condition="'$(NcfDesktopBuildNumber)' != ''">false</IncludeSourceRevisionInInformationalVersion>
@@ -64,6 +64,7 @@
       7、支持桌面机器人滚轮缩放、最大倍率限制和多屏位置持久化，恢复时确保浮窗完整可见
       8、修复 Windows 发布门禁读取已有标签时的误报失败，允许尚未发布的版本继续完成构建与发布
       [2026-08-04] v0.7.0 优化 macOS 内嵌浏览器 WebView 兼容性
+      [2026-08-08] v0.8.0 新增桌面机器人和 DesktopBridge 通讯能力
     </PackageReleaseNotes>
     <PlatformTarget>AnyCPU</PlatformTarget>
     <Nullable>enable</Nullable>

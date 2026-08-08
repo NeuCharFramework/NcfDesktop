@@ -264,6 +264,8 @@ public partial class MainWindowViewModel
     {
         _suppressAdminWebHandoffUntilWebLogin = true;
         CancelAdminWebHandoff();
+        StopAgentPortalSynchronization();
+        StopNeuBellSynchronization();
         await _desktopBridgeClient.StopAuthorizedSyncAsync();
         _adminChatClient.ClearAuthentication();
         IsAdminAuthenticated = false;
@@ -442,6 +444,8 @@ public partial class MainWindowViewModel
             _cancellationTokenSource?.Token ?? CancellationToken.None);
         await LoadAdminChatOptionsAsync();
         await RefreshAdminChatSessionsAsync(loadSelectedMessages: true);
+        StartAgentPortalSynchronization();
+        StartNeuBellSynchronization();
         AddLog($"🔐 管理员 {authentication.UserName} 已通过{authenticationSource}连接快捷聊天（JWT 仅保存在内存中）");
     }
 
@@ -1042,6 +1046,8 @@ public partial class MainWindowViewModel
     {
         Dispatcher.UIThread.Post(async () =>
         {
+            StopAgentPortalSynchronization();
+            StopNeuBellSynchronization();
             await _desktopBridgeClient.StopAuthorizedSyncAsync();
             _adminChatClient.ClearAuthentication();
             IsAdminAuthenticated = false;
@@ -1063,6 +1069,8 @@ public partial class MainWindowViewModel
         }
 
         _adminChatClient.ClearAuthentication();
+        StopAgentPortalSynchronization();
+        StopNeuBellSynchronization();
         IsAdminAuthenticated = false;
         AdminChatSessions.Clear();
         AdminChatMessages.Clear();
@@ -1074,6 +1082,8 @@ public partial class MainWindowViewModel
     private void ResetAdminChatState()
     {
         CancelAdminWebHandoff();
+        StopAgentPortalSynchronization();
+        StopNeuBellSynchronization();
         _suppressAdminWebHandoffUntilWebLogin = false;
         _nextAdminWebHandoffAttemptUtc = default;
         _adminChatClient.ClearAuthentication();

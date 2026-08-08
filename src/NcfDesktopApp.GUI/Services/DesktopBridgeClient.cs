@@ -8,6 +8,7 @@
 ----------------------------------------------------------------*/
 
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net;
@@ -30,6 +31,7 @@ public sealed class DesktopBridgeClient : IAsyncDisposable
     private const string PairingRequestsPath = "/api/Senparc.Xncf.DesktopBridge/pairing/requests";
     private const string PairingPollPath = "/api/Senparc.Xncf.DesktopBridge/pairing/poll";
     private const string DefaultEventsPath = "/api/Senparc.Xncf.DesktopBridge/events";
+    private const string DefaultSnapshotPath = "/api/Senparc.Xncf.DesktopBridge/activities";
     private const string DefaultAuthorizedSyncPath = "/api/Senparc.Xncf.DesktopBridge/authorized-sync/events";
     private const string DefaultAdminAuthHandoffRequestPath = "/api/Senparc.Xncf.DesktopBridge/admin-auth-handoff/requests";
     private const string DefaultAdminAuthHandoffRedeemPath = "/api/Senparc.Xncf.DesktopBridge/admin-auth-handoff/redeem";
@@ -404,10 +406,20 @@ public sealed class DesktopBridgeClient : IAsyncDisposable
             return probe;
         }
 
+        _lastSequence = 0;
+        if (probe.IsAvailable && probe.Capabilities?.SupportsSnapshot == true)
+        {
+            await PublishInitialSnapshotAsync(
+                    siteUrl,
+                    sessionToken,
+                    probe.Capabilities.SnapshotEndpoint,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+
         await _lifecycleLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            _lastSequence = 0;
             _listenCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             _listenTask = probe.IsAvailable
                 ? ListenLoopAsync(
@@ -447,6 +459,16 @@ public sealed class DesktopBridgeClient : IAsyncDisposable
             NotifyAvailability(probe);
             if (probe.IsAvailable)
             {
+                if (probe.Capabilities?.SupportsSnapshot == true)
+                {
+                    await PublishInitialSnapshotAsync(
+                            siteUrl,
+                            sessionToken,
+                            probe.Capabilities.SnapshotEndpoint,
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                }
+
                 await ListenLoopAsync(
                         siteUrl,
                         sessionToken,
@@ -463,6 +485,71 @@ public sealed class DesktopBridgeClient : IAsyncDisposable
             }
 
             retryDelay = TimeSpan.FromSeconds(Math.Min(retryDelay.TotalSeconds * 2, 10));
+        }
+    }
+
+    public async Task<IReadOnlyList<DesktopActivityMessage>> GetActivitySnapshotAsync(
+        string siteUrl,
+        string sessionToken,
+        string? snapshotPath = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (!SiteEndpointPolicy.TryCreateEndpoint(
+                siteUrl,
+                snapshotPath ?? DefaultSnapshotPath,
+                out var endpoint,
+                out var endpointError))
+        {
+            throw new InvalidOperationException(endpointError);
+        }
+
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(4));
+        using var request = CreateRequest(HttpMethod.Get, endpoint, sessionToken);
+        using var response = await _httpClient.SendAsync(
+                request,
+                HttpCompletionOption.ResponseContentRead,
+                timeout.Token)
+            .ConfigureAwait(false);
+        response.EnsureSuccessStatusCode();
+
+        var json = await response.Content.ReadAsStringAsync(timeout.Token).ConfigureAwait(false);
+        var activities = JsonSerializer.Deserialize<DesktopActivityMessage[]>(json, JsonOptions);
+        return activities ?? Array.Empty<DesktopActivityMessage>();
+    }
+
+    private async Task PublishInitialSnapshotAsync(
+        string siteUrl,
+        string sessionToken,
+        string? snapshotPath,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var activities = await GetActivitySnapshotAsync(
+                    siteUrl,
+                    sessionToken,
+                    snapshotPath,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            foreach (var activity in activities.OrderBy(item => item.Sequence))
+            {
+                if (activity.Sequence > Interlocked.Read(ref _lastSequence))
+                {
+                    Interlocked.Exchange(ref _lastSequence, activity.Sequence);
+                }
+
+                NotifyActivity(activity);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is
+                   OperationCanceledException or HttpRequestException or IOException or JsonException or InvalidOperationException)
+        {
+            // 快照是可选加速能力；读取失败时继续使用 SSE 回放，不能阻断 NCF 启动。
         }
     }
 

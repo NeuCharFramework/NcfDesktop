@@ -168,9 +168,8 @@
 
                         <Border Background="#0D2563EB" CornerRadius="7" Padding="11">
                             <StackPanel Spacing="7">
-                                <CheckBox Content="固定唤醒词（性能排查中，已临时停用）"
-                                          IsChecked="{Binding WakeWordEnabled, Mode=TwoWay}"
-                                          IsEnabled="{Binding IsWakeWordControlEnabled}"/>
+                                <CheckBox Content="启用固定唤醒词“你好 Cici”"
+                                          IsChecked="{Binding WakeWordEnabled, Mode=TwoWay}"/>
                                 <TextBlock Text="{Binding WakePhraseText, StringFormat='唤醒短语：{0}'}"
                                            FontWeight="SemiBold"
                                            FontSize="11"/>
@@ -312,15 +311,67 @@
                             <Border Classes="settings-section">
                                 <StackPanel Spacing="12">
                                     <StackPanel Spacing="2">
+                                        <TextBlock Text="多个宠物的展示方式" Classes="section-title"/>
+                                        <TextBlock Text="此偏好应用于所有工作区，可随时切换，不会停止正在运行的 NCF。"
+                                                   Classes="section-description"/>
+                                    </StackPanel>
+
+                                    <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
+                                        <Border Grid.Column="0"
+                                                Padding="12"
+                                                CornerRadius="10"
+                                                Background="#0C2563EB"
+                                                BorderBrush="#302563EB"
+                                                BorderThickness="1">
+                                            <RadioButton GroupName="DesktopRobotLayoutMode"
+                                                         IsChecked="{Binding UsesFreeFloatingDesktopRobots, Mode=TwoWay}"
+                                                         VerticalContentAlignment="Top">
+                                                <StackPanel Spacing="4" Margin="4,0,0,0">
+                                                    <TextBlock Text="自由浮动" FontWeight="SemiBold"/>
+                                                    <TextBlock Text="每个工作区一个宠物，可分别拖动、悬停查看详情和双击语音。"
+                                                               FontSize="11"
+                                                               Foreground="{DynamicResource SecondaryTextBrush}"
+                                                               TextWrapping="Wrap"/>
+                                                </StackPanel>
+                                            </RadioButton>
+                                        </Border>
+
+                                        <Border Grid.Column="1"
+                                                Padding="12"
+                                                CornerRadius="10"
+                                                Background="#0C0F766E"
+                                                BorderBrush="#300F766E"
+                                                BorderThickness="1">
+                                            <RadioButton GroupName="DesktopRobotLayoutMode"
+                                                         IsChecked="{Binding UsesGroupedDesktopRobotList, Mode=TwoWay}"
+                                                         VerticalContentAlignment="Top">
+                                                <StackPanel Spacing="4" Margin="4,0,0,0">
+                                                    <TextBlock Text="统一标签列表" FontWeight="SemiBold"/>
+                                                    <TextBlock Text="收纳到一个置顶标签；仍显示名称、宠物、状态、详情、连接和常用操作。"
+                                                               FontSize="11"
+                                                               Foreground="{DynamicResource SecondaryTextBrush}"
+                                                               TextWrapping="Wrap"/>
+                                                </StackPanel>
+                                            </RadioButton>
+                                        </Border>
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Classes="settings-section">
+                                <StackPanel Spacing="12">
+                                    <StackPanel Spacing="2">
                                         <TextBlock Text="桌面宠物" Classes="section-title"/>
                                         <TextBlock Text="控制浮窗显示与大小。缩放只改变显示尺寸，不增加动画刷新频率。"
                                                    Classes="section-description"/>
                                     </StackPanel>
 
                                     <CheckBox Content="鼠标位于宠物上方时，允许使用滚轮调整大小"
+                                              IsEnabled="{Binding UsesFreeFloatingDesktopRobots}"
                                               IsChecked="{Binding DesktopRobotWheelZoomEnabled, Mode=TwoWay}"/>
 
-                                    <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto" RowSpacing="10">
+                                    <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto" RowSpacing="10"
+                                          IsEnabled="{Binding UsesFreeFloatingDesktopRobots}">
                                         <TextBlock Grid.Row="0" Grid.Column="0"
                                                    Text="当前大小（倍）"
                                                    Classes="field-label"/>
@@ -338,7 +389,7 @@
                                                        Increment="0.1"/>
                                     </Grid>
 
-                                    <TextBlock Text="1.0 倍是当前设计大小和缩小下限；放大上限可设置到 4.0 倍。滚轮缩放会保留宠物相对当前屏幕右下方的位置。"
+                                    <TextBlock Text="大小与滚轮设置用于自由浮动模式；统一列表采用固定紧凑尺寸。1.0 倍是缩小下限，放大上限可设置到 4.0 倍。"
                                                Classes="section-description"/>
 
                                     <WrapPanel Orientation="Horizontal">

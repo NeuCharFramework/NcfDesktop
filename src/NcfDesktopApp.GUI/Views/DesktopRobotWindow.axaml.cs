@@ -15,6 +15,7 @@
 ----------------------------------------------------------------*/
 
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
 using Avalonia;
@@ -34,11 +35,18 @@ public partial class DesktopRobotWindow : Window
 {
     private const double MascotSurfaceSize = 112;
     private const double MascotCircleRight = 88;
-    private const double CardWidth = 302;
+    private const double CardWidth = 342;
     private const double CardHeight = 138;
     private const double CardOverlap = 46;
     private const double WindowPadding = 16;
+    private const double WindowInset = WindowPadding / 2;
     private const double CompactStatusMaxWidth = 110;
+    private const double CompactStatusHeight = 26;
+    private const double CompactStatusCornerRadius = 9;
+    private const double CardCornerRadius = 18;
+    private const double NeuBellBadgeSize = 30;
+    private const double NeuBellBadgeTop = 3;
+    private const double NeuBellBadgeRight = 3;
     private const double WheelScaleStep = .1;
 
     private readonly DispatcherTimer _globalPointerTimer = new()
@@ -54,7 +62,10 @@ public partial class DesktopRobotWindow : Window
     private bool _isOpened;
     private bool _isApplyingScale;
     private bool _isCardExpanded;
+    private bool _hasRestoredInitialPlacement;
+    private bool _macOsMousePassthrough;
     private double _currentScale = DesktopRobotPlacementPolicy.MinimumScale;
+    private IReadOnlyList<FloatingWindowHitRegion> _hitRegions = Array.Empty<FloatingWindowHitRegion>();
 
     public DesktopRobotWindow()
     {
@@ -68,8 +79,10 @@ public partial class DesktopRobotWindow : Window
         };
         Opened += (_, _) =>
         {
+            FloatingWindowPlatformService.ConfigureTransparentWindow(this);
             _isOpened = true;
             RestorePlacementOrUseDefault();
+            UpdateNativeHitArea(CalculateLayout(_currentScale, _isCardExpanded, GetCompactStatusWidth()));
             Robot?.ResetGaze();
             _globalPointerTimer.Start();
         };
@@ -80,6 +93,13 @@ public partial class DesktopRobotWindow : Window
     public Action? OpenMainWindowRequested { get; set; }
 
     public Action? VoiceInputRequested { get; set; }
+
+    public Action? NeuBellOpenRequested { get; set; }
+
+    /// <summary>
+    /// 多个自由浮动宠物首次显示时的错位序号，避免都覆盖在同一保存坐标上。
+    /// </summary>
+    public int PlacementOffsetIndex { get; set; }
 
     public MainWindowViewModel? WorkspaceViewModel
     {
@@ -131,7 +151,12 @@ public partial class DesktopRobotWindow : Window
                 }
 
                 ApplyScale(requestedScale, screen, preserveScreenAnchor: false);
-                Position = requestedPosition.Value;
+                var canonicalPosition = GetInitialPlacement(
+                    requestedPosition.Value,
+                    size,
+                    screen.WorkingArea);
+                Position = GetDisplayedPosition(canonicalPosition, screen);
+                _hasRestoredInitialPlacement = true;
                 return;
             }
         }
@@ -139,6 +164,7 @@ public partial class DesktopRobotWindow : Window
         var defaultScreen = Screens.ScreenFromWindow(this) ?? Screens.Primary ?? Screens.All.FirstOrDefault();
         ApplyScale(requestedScale, defaultScreen, preserveScreenAnchor: false);
         PositionNearWorkingAreaCorner(defaultScreen);
+        _hasRestoredInitialPlacement = true;
     }
 
     private void PositionNearWorkingAreaCorner(Screen? screen = null)
@@ -149,9 +175,81 @@ public partial class DesktopRobotWindow : Window
             return;
         }
 
-        Position = DesktopRobotPlacementPolicy.GetDefaultPosition(
-            GetWindowPixelSize(screen, _currentScale),
+        var windowSize = GetWindowPixelSize(screen, _currentScale);
+        var defaultPosition = DesktopRobotPlacementPolicy.GetDefaultPosition(
+            windowSize,
             screen.WorkingArea);
+        var canonicalPosition = GetInitialPlacement(defaultPosition, windowSize, screen.WorkingArea);
+        Position = GetDisplayedPosition(canonicalPosition, screen);
+    }
+
+    private PixelPoint GetInitialPlacement(
+        PixelPoint position,
+        PixelSize windowSize,
+        PixelRect workingArea) =>
+        _hasRestoredInitialPlacement
+            ? position
+            : CalculateInitialFreeFloatingPosition(
+                position,
+                windowSize,
+                workingArea,
+                PlacementOffsetIndex);
+
+    internal static PixelPoint CalculateInitialFreeFloatingPosition(
+        PixelPoint basePosition,
+        PixelSize windowSize,
+        PixelRect workingArea,
+        int offsetIndex)
+    {
+        if (offsetIndex <= 0)
+        {
+            return basePosition;
+        }
+
+        const int rowsPerColumn = 5;
+        const int verticalStep = 112;
+        const int horizontalStep = 190;
+        var row = offsetIndex % rowsPerColumn;
+        var column = offsetIndex / rowsPerColumn;
+        var requestedX = basePosition.X - column * horizontalStep;
+        var requestedY = basePosition.Y - row * verticalStep;
+        var maximumX = Math.Max(workingArea.X, workingArea.Right - windowSize.Width);
+        var maximumY = Math.Max(workingArea.Y, workingArea.Bottom - windowSize.Height);
+        return new PixelPoint(
+            Math.Clamp(requestedX, workingArea.X, maximumX),
+            Math.Clamp(requestedY, workingArea.Y, maximumY));
+    }
+
+    private PixelPoint GetDisplayedPosition(PixelPoint canonicalPosition, Screen screen) =>
+        GetDisplayedPosition(canonicalPosition, screen, _currentScale, _isCardExpanded);
+
+    private static PixelPoint GetDisplayedPosition(
+        PixelPoint canonicalPosition,
+        Screen screen,
+        double scale,
+        bool isCardExpanded) =>
+        new(
+            canonicalPosition.X,
+            canonicalPosition.Y + CalculateWindowTopOffset(scale, isCardExpanded, screen.Scaling));
+
+    private static PixelPoint GetCanonicalPosition(
+        PixelPoint displayedPosition,
+        Screen screen,
+        double scale,
+        bool isCardExpanded) =>
+        new(
+            displayedPosition.X,
+            displayedPosition.Y - CalculateWindowTopOffset(scale, isCardExpanded, screen.Scaling));
+
+    internal static int CalculateWindowTopOffset(
+        double scale,
+        bool isCardExpanded,
+        double displayScaling)
+    {
+        var expandedLayout = CalculateLayout(scale, isCardExpanded: true, compactStatusWidth: 0);
+        var currentLayout = CalculateLayout(scale, isCardExpanded, compactStatusWidth: 0);
+        var scaling = displayScaling > 0 ? displayScaling : 1;
+        return (int)Math.Round((expandedLayout.MascotTop - currentLayout.MascotTop) * scaling);
     }
 
     private void ApplyScale(double requestedScale, Screen? preferredScreen = null, bool preserveScreenAnchor = true)
@@ -184,8 +282,15 @@ public partial class DesktopRobotWindow : Window
             }
 
             var oldSize = screen == null ? default : GetWindowPixelSize(screen, _currentScale);
-            var oldRightGap = screen == null ? 0 : screen.WorkingArea.Right - (Position.X + oldSize.Width);
-            var oldBottomGap = screen == null ? 0 : screen.WorkingArea.Bottom - (Position.Y + oldSize.Height);
+            var oldCanonicalPosition = screen == null
+                ? Position
+                : GetCanonicalPosition(Position, screen, _currentScale, _isCardExpanded);
+            var oldRightGap = screen == null
+                ? 0
+                : screen.WorkingArea.Right - (oldCanonicalPosition.X + oldSize.Width);
+            var oldBottomGap = screen == null
+                ? 0
+                : screen.WorkingArea.Bottom - (oldCanonicalPosition.Y + oldSize.Height);
 
             _currentScale = normalizedScale;
             var layout = CalculateLayout(normalizedScale, _isCardExpanded, GetCompactStatusWidth());
@@ -204,6 +309,7 @@ public partial class DesktopRobotWindow : Window
             Canvas.SetTop(HideRobotButton, layout.CardTop + 10);
             Canvas.SetLeft(HoverBridge, layout.BridgeLeft);
             Canvas.SetTop(HoverBridge, layout.BridgeTop);
+            UpdateNativeHitArea(layout);
             if (WorkspaceViewModel != null &&
                 Math.Abs(WorkspaceViewModel.DesktopRobotScale - normalizedScale) > .001)
             {
@@ -224,12 +330,17 @@ public partial class DesktopRobotWindow : Window
             var anchoredPosition = new PixelPoint(
                 screen.WorkingArea.Right - oldRightGap - newSize.Width,
                 screen.WorkingArea.Bottom - oldBottomGap - newSize.Height);
-            Position = DesktopRobotPlacementPolicy.IsFullyVisible(
+            var canonicalPosition = DesktopRobotPlacementPolicy.IsFullyVisible(
                 anchoredPosition,
                 newSize,
                 screen.WorkingArea)
                 ? anchoredPosition
                 : DesktopRobotPlacementPolicy.GetDefaultPosition(newSize, screen.WorkingArea);
+            Position = GetDisplayedPosition(
+                canonicalPosition,
+                screen,
+                normalizedScale,
+                _isCardExpanded);
         }
         finally
         {
@@ -262,22 +373,83 @@ public partial class DesktopRobotWindow : Window
         var expandedRootWidth = Math.Max(mascotSize, cardLeft + CardWidth);
         var collapsedRootWidth = Math.Max(mascotSize, statusLeft + safeStatusWidth);
         var rootWidth = isCardExpanded ? expandedRootWidth : collapsedRootWidth;
-        var rootHeight = Math.Max(mascotSize, CardHeight);
+        var rootHeight = isCardExpanded
+            ? Math.Max(mascotSize, CardHeight)
+            : mascotSize;
         var mascotTop = (rootHeight - mascotSize) / 2;
         var cardTop = (rootHeight - CardHeight) / 2;
+        var statusTop = Math.Max(0, mascotTop - 3);
 
         return new DesktopRobotLayout(
             rootWidth,
             rootHeight,
             rootWidth + WindowPadding,
             rootHeight + WindowPadding,
+            scale,
+            mascotSize,
             mascotTop,
             cardLeft,
             cardTop,
             statusLeft,
-            cardTop + 10,
+            statusTop,
+            safeStatusWidth,
             circleRight - 10,
             cardTop + 4);
+    }
+
+    internal static IReadOnlyList<FloatingWindowHitRegion> CalculateHitRegions(
+        DesktopRobotLayout layout,
+        bool isCardExpanded)
+    {
+        var regions = new List<FloatingWindowHitRegion>(4)
+        {
+            new(
+                new Rect(
+                    WindowInset,
+                    WindowInset + layout.MascotTop,
+                    layout.MascotSize,
+                    layout.MascotSize),
+                layout.MascotSize / 2,
+                IsEllipse: true),
+            new(
+                new Rect(
+                    WindowInset + layout.StatusLeft,
+                    WindowInset + layout.StatusTop,
+                    layout.StatusWidth,
+                    CompactStatusHeight),
+                CompactStatusCornerRadius),
+            // 纽铃徽标位于宠物圆环右上角，不能被圆形原生区域裁掉。
+            new(
+                new Rect(
+                    WindowInset + (MascotSurfaceSize - NeuBellBadgeSize - NeuBellBadgeRight) * layout.Scale,
+                    WindowInset + layout.MascotTop + NeuBellBadgeTop * layout.Scale,
+                    NeuBellBadgeSize * layout.Scale,
+                    NeuBellBadgeSize * layout.Scale),
+                NeuBellBadgeSize * layout.Scale / 2,
+                IsEllipse: true)
+        };
+
+        if (isCardExpanded)
+        {
+            regions.Add(new FloatingWindowHitRegion(
+                new Rect(
+                    WindowInset + layout.CardLeft,
+                    WindowInset + layout.CardTop,
+                    CardWidth,
+                    CardHeight),
+                CardCornerRadius));
+        }
+
+        return regions;
+    }
+
+    private void UpdateNativeHitArea(DesktopRobotLayout layout)
+    {
+        _hitRegions = CalculateHitRegions(layout, _isCardExpanded);
+        if (_isOpened)
+        {
+            FloatingWindowPlatformService.ApplyHitRegions(this, _hitRegions);
+        }
     }
 
     private double GetCompactStatusWidth()
@@ -296,6 +468,7 @@ public partial class DesktopRobotWindow : Window
         Height = layout.WindowHeight;
         RootSurface.Width = layout.RootWidth;
         RootSurface.Height = layout.RootHeight;
+        UpdateNativeHitArea(layout);
     }
 
     private void SetCardExpanded(bool isExpanded)
@@ -305,11 +478,21 @@ public partial class DesktopRobotWindow : Window
             return;
         }
 
+        var screen = Screens.ScreenFromWindow(this) ?? Screens.Primary ?? Screens.All.FirstOrDefault();
+        var canonicalPosition = screen == null
+            ? Position
+            : GetCanonicalPosition(Position, screen, _currentScale, _isCardExpanded);
+
         _isCardExpanded = isExpanded;
         ExpandedCard.IsVisible = isExpanded;
         HideRobotButton.IsVisible = isExpanded;
         HoverBridge.IsVisible = isExpanded;
         UpdateWindowExtent();
+
+        if (_isOpened && screen != null)
+        {
+            Position = GetDisplayedPosition(canonicalPosition, screen);
+        }
     }
 
     private void OnDataContextChanged(object? sender, EventArgs e)
@@ -365,7 +548,11 @@ public partial class DesktopRobotWindow : Window
     {
         if (_isOpened && WorkspaceViewModel != null)
         {
-            WorkspaceViewModel.SaveDesktopRobotPlacement(Position, _currentScale);
+            var screen = Screens.ScreenFromWindow(this) ?? Screens.Primary ?? Screens.All.FirstOrDefault();
+            var position = screen == null
+                ? Position
+                : GetCanonicalPosition(Position, screen, _currentScale, _isCardExpanded);
+            WorkspaceViewModel.SaveDesktopRobotPlacement(position, _currentScale);
         }
     }
 
@@ -379,7 +566,10 @@ public partial class DesktopRobotWindow : Window
         // Closing 发生在原生窗口实现释放之前。先保存仍然有效的位置，再把窗口标记为
         // 非活动并解除属性订阅，避免保存位置触发 RestorePlacementOrUseDefault，进而在
         // Closed 阶段通过 Screens.ScreenFromWindow 访问已释放的平台窗口。
-        var position = Position;
+        var screen = Screens.ScreenFromWindow(this) ?? Screens.Primary ?? Screens.All.FirstOrDefault();
+        var position = screen == null
+            ? Position
+            : GetCanonicalPosition(Position, screen, _currentScale, _isCardExpanded);
         var workspaceViewModel = _workspaceViewModel;
 
         _isOpened = false;
@@ -410,6 +600,12 @@ public partial class DesktopRobotWindow : Window
     {
         _globalPointerTimer.Stop();
         _placementSaveTimer.Stop();
+        if (_macOsMousePassthrough)
+        {
+            FloatingWindowPlatformService.SetMacOsMousePassthrough(this, passthrough: false);
+            _macOsMousePassthrough = false;
+        }
+
         if (workspaceViewModel != null)
         {
             workspaceViewModel.PropertyChanged -= WorkspaceViewModel_OnPropertyChanged;
@@ -523,6 +719,8 @@ public partial class DesktopRobotWindow : Window
             return;
         }
 
+        UpdateMacOsPointerBehavior(pointerPosition);
+
         var mascotCenter = MascotView.TranslatePoint(
             new Point(MascotView.Bounds.Width / 2, MascotView.Bounds.Height / 2), this);
         if (!mascotCenter.HasValue)
@@ -541,6 +739,37 @@ public partial class DesktopRobotWindow : Window
         Robot?.UpdateGaze(
             (pointerPosition.X - mascotCenterOnScreen.X) / horizontalRange,
             (pointerPosition.Y - mascotCenterOnScreen.Y) / verticalRange);
+    }
+
+    private void UpdateMacOsPointerBehavior(PixelPoint pointerPosition)
+    {
+        if (!OperatingSystem.IsMacOS())
+        {
+            return;
+        }
+
+        var localPoint = this.PointToClient(pointerPosition);
+        var isInteractive = _hitRegions.Any(region => region.Contains(localPoint));
+        var shouldPassThrough = !isInteractive;
+
+        if (_macOsMousePassthrough != shouldPassThrough)
+        {
+            FloatingWindowPlatformService.SetMacOsMousePassthrough(this, shouldPassThrough);
+            _macOsMousePassthrough = shouldPassThrough;
+        }
+
+        // NSWindow 忽略鼠标后不会再产生 PointerEntered/Exited；用已有的全局指针轮询
+        // 保持悬停展开和收起，同时让透明像素后的应用收到点击。
+        if (isInteractive && !_isCardExpanded)
+        {
+            SetCardExpanded(true);
+            PromoteAboveOtherAlwaysOnTopWindows();
+        }
+        else if (!isInteractive && _isCardExpanded)
+        {
+            SetCardExpanded(false);
+            Robot?.ResetGaze();
+        }
     }
 
     private void HideButton_OnClick(object? sender, RoutedEventArgs e)
@@ -570,6 +799,27 @@ public partial class DesktopRobotWindow : Window
         VoiceInputRequested?.Invoke();
     }
 
+    private void AgentPortalButton_OnClick(object? sender, RoutedEventArgs e)
+    {
+        e.Handled = true;
+        Robot?.ToggleAgentPortal();
+    }
+
+    private void AgentPortalMenuItem_OnClick(object? sender, RoutedEventArgs e) =>
+        Robot?.ToggleAgentPortal();
+
+    private static void NeuBellButton_OnPointerPressed(object? sender, PointerPressedEventArgs e) =>
+        e.Handled = true;
+
+    private void NeuBellButton_OnClick(object? sender, RoutedEventArgs e)
+    {
+        e.Handled = true;
+        NeuBellOpenRequested?.Invoke();
+    }
+
+    private void NeuBellMenuItem_OnClick(object? sender, RoutedEventArgs e) =>
+        NeuBellOpenRequested?.Invoke();
+
     private void MascotMenuItem_OnClick(object? sender, RoutedEventArgs e)
     {
         if (sender is MenuItem { Tag: string tag } &&
@@ -586,11 +836,14 @@ public partial class DesktopRobotWindow : Window
         double RootHeight,
         double WindowWidth,
         double WindowHeight,
+        double Scale,
+        double MascotSize,
         double MascotTop,
         double CardLeft,
         double CardTop,
         double StatusLeft,
         double StatusTop,
+        double StatusWidth,
         double BridgeLeft,
         double BridgeTop);
 }

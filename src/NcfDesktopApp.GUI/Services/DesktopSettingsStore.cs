@@ -141,6 +141,8 @@ public static class DesktopSettingsStore
                 TtsSpeed = Math.Clamp(settings.TtsSpeed, 0.5, 2.0),
                 TtsAutoRead = settings.TtsAutoRead,
                 DesktopRobotWheelZoomEnabled = settings.DesktopRobotWheelZoomEnabled,
+                DesktopRobotLayoutMode = DesktopRobotLayoutModePolicy.Normalize(
+                    settings.DesktopRobotLayoutMode),
                 DesktopRobotMaximumScale = DesktopRobotPlacementPolicy.NormalizeMaximumScale(
                     settings.DesktopRobotMaximumScale),
                 DesktopRobotScale = DesktopRobotPlacementPolicy.NormalizeScale(

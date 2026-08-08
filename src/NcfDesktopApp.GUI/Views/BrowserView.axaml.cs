@@ -6,8 +6,11 @@ using NcfDesktopApp.GUI.Views.Controls;
 
 namespace NcfDesktopApp.GUI.Views;
 
-public partial class BrowserView : UserControl
+public partial class BrowserView : UserControl, IDisposable
 {
+    private bool _eventsAttached;
+    private bool _disposed;
+
     private EmbeddedWebView? WebView => this.FindControl<EmbeddedWebView>("WebViewControl");
 
     public BrowserView()
@@ -28,11 +31,12 @@ public partial class BrowserView : UserControl
     private void OnLoaded(object? sender, RoutedEventArgs e)
     {
         // 设置WebView事件处理
-        if (WebView != null)
+        if (!_eventsAttached && WebView != null)
         {
             WebView.NavigationStarted += OnNavigationStarted;
             WebView.NavigationCompleted += OnNavigationCompleted;
             WebView.NavigationFailed += OnNavigationFailed;
+            _eventsAttached = true;
         }
         
     }
@@ -111,5 +115,38 @@ public partial class BrowserView : UserControl
         {
             viewModel.OnBrowserError(error);
         }
+    }
+
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        Loaded -= OnLoaded;
+        DataContextChanged -= OnDataContextChanged;
+
+        if (WebView != null)
+        {
+            if (_eventsAttached)
+            {
+                WebView.NavigationStarted -= OnNavigationStarted;
+                WebView.NavigationCompleted -= OnNavigationCompleted;
+                WebView.NavigationFailed -= OnNavigationFailed;
+                _eventsAttached = false;
+            }
+
+            WebView.DisposeWebView();
+        }
+
+        if (DataContext is ViewModels.MainWindowViewModel viewModel &&
+            ReferenceEquals(viewModel.BrowserViewReference, this))
+        {
+            viewModel.BrowserViewReference = null;
+        }
+
+        DataContext = null;
     }
 }

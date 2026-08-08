@@ -12,6 +12,7 @@
 ----------------------------------------------------------------*/
 
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -72,10 +73,137 @@ public partial class DesktopRobotViewModel : ViewModelBase
     [ObservableProperty]
     private double[] _audioVisualizationBands = new double[12];
 
+    [ObservableProperty]
+    private bool _isAgentPortalAvailable;
+
+    [ObservableProperty]
+    private bool _isAgentPortalOpen;
+
+    [ObservableProperty]
+    private string _agentPortalStatusText = "等待 AgentsManager 活动";
+
+    [ObservableProperty]
+    private IReadOnlyList<AgentPortalNode> _agentPortalNodes = Array.Empty<AgentPortalNode>();
+
+    [ObservableProperty]
+    private int _neuBellCount;
+
+    [ObservableProperty]
+    private string _neuBellBadgeText = string.Empty;
+
+    [ObservableProperty]
+    private string _neuBellSummary = "当前没有纽铃提醒";
+
     private DispatcherTimer? _interactionTimer;
+    private readonly Dictionary<string, AgentPortalNode> _activeAgentPortalNodes =
+        new(StringComparer.OrdinalIgnoreCase);
     private NcfMascotKind _resolvedMascot = NcfMascotKind.Nono;
     private NcfMascotKind _mascotOverride = NcfMascotKind.Nono;
     private bool _isMascotOverride;
+
+    public bool IsMascotVisible => !IsAgentPortalOpen;
+
+    public string AgentPortalActionText => IsAgentPortalOpen ? "返回" : "Agents";
+
+    public bool HasNeuBellNotifications => NeuBellCount > 0;
+
+    partial void OnNeuBellCountChanged(int value) =>
+        OnPropertyChanged(nameof(HasNeuBellNotifications));
+
+    public void ApplyNeuBellPresentation(int count, string badgeText, string summary)
+    {
+        RunOnUi(() =>
+        {
+            NeuBellCount = Math.Max(0, count);
+            NeuBellBadgeText = NeuBellCount > 0 ? badgeText : string.Empty;
+            NeuBellSummary = string.IsNullOrWhiteSpace(summary)
+                ? $"纽铃有 {NeuBellCount} 条待处理提醒"
+                : summary;
+        });
+    }
+
+    public void ClearNeuBellNotifications()
+    {
+        RunOnUi(() =>
+        {
+            NeuBellCount = 0;
+            NeuBellBadgeText = string.Empty;
+            NeuBellSummary = "当前没有纽铃提醒";
+        });
+    }
+
+    public void ToggleAgentPortal()
+    {
+        RunOnUi(() =>
+        {
+            if (!IsAgentPortalAvailable)
+            {
+                AgentPortalStatusText = "尚未检测到已启用的 AgentsManager 实时活动";
+                return;
+            }
+
+            IsAgentPortalOpen = !IsAgentPortalOpen;
+        });
+    }
+
+    public void ApplyAgentGraphSnapshot(AgentGraphSnapshot snapshot)
+    {
+        RunOnUi(() =>
+        {
+            var activeAgentIds = snapshot.Collaborations
+                .Where(item => item.Status is 0 or 1 or 2)
+                .SelectMany(item => item.AgentIds)
+                .ToHashSet();
+            var now = DateTimeOffset.UtcNow;
+
+            _activeAgentPortalNodes.Clear();
+            foreach (var agent in snapshot.Agents
+                         .OrderByDescending(item => activeAgentIds.Contains(item.Id) || item.ChattingCount > 0)
+                         .ThenByDescending(item => item.Enable)
+                         .ThenBy(item => item.Name, StringComparer.CurrentCultureIgnoreCase)
+                         .Take(AgentPortalProjection.MaximumVisibleNodes))
+            {
+                var isWorking = activeAgentIds.Contains(agent.Id) || agent.ChattingCount > 0;
+                var node = new AgentPortalNode(
+                    $"agent-{agent.Id}",
+                    string.IsNullOrWhiteSpace(agent.Name) ? $"Agent {agent.Id}" : agent.Name.Trim(),
+                    isWorking
+                        ? AgentPortalNodeState.Working
+                        : agent.Enable
+                            ? AgentPortalNodeState.Waiting
+                            : AgentPortalNodeState.Cancelled,
+                    isWorking ? Math.Clamp(25 + agent.ChattingCount * 15, 25, 100) : 0,
+                    now);
+                _activeAgentPortalNodes[node.Id] = node;
+            }
+
+            AgentPortalNodes = _activeAgentPortalNodes.Values.ToArray();
+            IsAgentPortalAvailable = true;
+            var activeCount = AgentPortalNodes.Count(item => item.State == AgentPortalNodeState.Working);
+            AgentPortalStatusText = $"Agents 空间 · {snapshot.Agents.Count} 个 Agent · {activeCount} 个工作中";
+        });
+    }
+
+    public void SetAgentPortalUnavailable(string status)
+    {
+        RunOnUi(() =>
+        {
+            ResetAgentPortal();
+            AgentPortalStatusText = string.IsNullOrWhiteSpace(status)
+                ? "未检测到已启用的 AgentsManager"
+                : status;
+        });
+    }
+
+    partial void OnIsAgentPortalOpenChanged(bool value)
+    {
+        OnPropertyChanged(nameof(IsMascotVisible));
+        OnPropertyChanged(nameof(AgentPortalActionText));
+        if (value)
+        {
+            ResetGaze();
+        }
+    }
 
     /// <summary>更新浮动角色的视线方向，供桌面窗口的鼠标移动事件调用。</summary>
     public void UpdateGaze(double x, double y)
@@ -128,6 +256,11 @@ public partial class DesktopRobotViewModel : ViewModelBase
     {
         RunOnUi(() =>
         {
+            if (state is "已停止" or "授权已撤销")
+            {
+                ResetAgentPortal();
+            }
+
             SetMascot(
                 isError ? NcfMascotKind.Opsi : NcfMascotKind.Nono,
                 isError ? NcfMascotPose.Warning : state switch
@@ -164,6 +297,11 @@ public partial class DesktopRobotViewModel : ViewModelBase
     {
         RunOnUi(() =>
         {
+            if (result.Availability != DesktopBridgeAvailability.Available)
+            {
+                ResetAgentPortal();
+            }
+
             var pose = result.Availability switch
             {
                 DesktopBridgeAvailability.Available => NcfMascotPose.Wave,
@@ -253,6 +391,7 @@ public partial class DesktopRobotViewModel : ViewModelBase
     {
         RunOnUi(() =>
         {
+            ApplyAgentPortalActivity(activity);
             SetMascot(ResolveMascot(activity.Source, activity.Title, activity.State),
                 ResolvePose(activity.State));
             Title = string.IsNullOrWhiteSpace(activity.Source)
@@ -286,6 +425,43 @@ public partial class DesktopRobotViewModel : ViewModelBase
             IsProgressVisible = activity.Progress.HasValue;
             Progress = activity.Progress ?? 0;
         });
+    }
+
+    private void ApplyAgentPortalActivity(DesktopActivityMessage activity)
+    {
+        if (!AgentPortalProjection.IsAgentsManagerActivity(activity))
+        {
+            return;
+        }
+
+        IsAgentPortalAvailable = true;
+        var node = AgentPortalProjection.Project(activity);
+        if (activity.IsTerminal)
+        {
+            _activeAgentPortalNodes.Remove(node.Id);
+        }
+        else
+        {
+            _activeAgentPortalNodes[node.Id] = node;
+        }
+
+        AgentPortalNodes = _activeAgentPortalNodes.Values
+            .OrderByDescending(item => item.State == AgentPortalNodeState.Working)
+            .ThenByDescending(item => item.Time)
+            .Take(AgentPortalProjection.MaximumVisibleNodes)
+            .ToArray();
+        AgentPortalStatusText = AgentPortalNodes.Count == 0
+            ? "AgentsManager 已连接 · 当前空闲"
+            : $"Agents 空间 · {AgentPortalNodes.Count} 项活动";
+    }
+
+    private void ResetAgentPortal()
+    {
+        _activeAgentPortalNodes.Clear();
+        AgentPortalNodes = Array.Empty<AgentPortalNode>();
+        IsAgentPortalOpen = false;
+        IsAgentPortalAvailable = false;
+        AgentPortalStatusText = "等待 AgentsManager 活动";
     }
 
     public void ApplyCompatibilityLog(string message, bool isError)

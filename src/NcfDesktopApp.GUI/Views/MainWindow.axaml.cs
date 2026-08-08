@@ -29,6 +29,8 @@ public partial class MainWindow : Window
     /// <summary>为 true 时跳过「NCF 运行中」关闭确认（避免二次 Close 再次弹框）。</summary>
     private bool _allowCloseWithoutNcfConfirm;
 
+    private bool _closePreparationInProgress;
+
     /// <summary>防止 NativeMenu 与 KeyDown 对同一次 ⌘V 各处理一次。</summary>
     private DateTime _lastEditCommandUtc = DateTime.MinValue;
     private WebViewEditBridge.EditCommand _lastEditCommand = WebViewEditBridge.EditCommand.None;
@@ -116,7 +118,8 @@ public partial class MainWindow : Window
 
             // 2) 浏览器标签页内嵌 WebView（登录页等）
             // 焦点在 WKWebView 时 Avalonia FocusManager 常为 null，只要浏览器标签激活就路由到 WebView。
-            if (DataContext is MainWindowViewModel vm
+            if (DataContext is WorkspaceShellViewModel shell
+                && shell.SelectedWorkspace?.Workspace is MainWindowViewModel vm
                 && vm.IsBrowserTabActive
                 && vm.BrowserViewReference is BrowserView browserView
                 && browserView.IsEmbeddedWebViewReady)
@@ -155,23 +158,43 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (DataContext is not MainWindowViewModel vm)
+        if (DataContext is not WorkspaceShellViewModel shell)
         {
             return;
         }
 
-        if (!vm.IsNcfRunning)
+        var runningWorkspaces = shell.Workspaces
+            .Where(workspace => workspace.Workspace.IsNcfRunning)
+            .ToArray();
+        if (runningWorkspaces.Length == 0)
         {
             return;
         }
 
         e.Cancel = true;
+        if (_closePreparationInProgress)
+        {
+            return;
+        }
+
+        _closePreparationInProgress = true;
 
         try
         {
-            if (!await vm.TryPrepareShutdownForWindowCloseAsync().ConfigureAwait(true))
+            var confirmationWorkspace = shell.SelectedWorkspace ?? runningWorkspaces[0];
+            if (!await confirmationWorkspace.Workspace
+                    .ConfirmCloseAsync(
+                        "关闭 NCF Desktop",
+                        $"当前有 {runningWorkspaces.Length} 个 NCF 工作区正在运行。\n关闭主窗口将停止这些 NCF 进程和对应宠物。\n是否继续？",
+                        "全部停止并关闭")
+                    .ConfigureAwait(true))
             {
                 return;
+            }
+
+            foreach (var workspace in runningWorkspaces)
+            {
+                await workspace.Workspace.StopForWorkspaceCloseAsync().ConfigureAwait(true);
             }
 
             _allowCloseWithoutNcfConfirm = true;
@@ -180,6 +203,10 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             Console.WriteLine($"[关闭主窗口] 停止 NCF 或确认流程异常: {ex.Message}");
+        }
+        finally
+        {
+            _closePreparationInProgress = false;
         }
     }
 
@@ -209,9 +236,9 @@ public partial class MainWindow : Window
                 var workingHeight = workingArea.Height / scaling;
 
                 // 定义理想尺寸。高度略高于默认值，尽量让左侧紧凑布局无需滚动。
-                const double idealWidth = 1040;
+                const double idealWidth = 1280;
                 const double idealHeight = 900;
-                const double preferredMinWidth = 820;
+                const double preferredMinWidth = 980;
                 const double preferredMinHeight = 600;
                 const double safetyMargin = 24;
 

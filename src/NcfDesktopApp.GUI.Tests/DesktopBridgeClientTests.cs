@@ -211,6 +211,42 @@ public sealed class DesktopBridgeClientTests
     }
 
     [TestMethod]
+    public async Task GetActivitySnapshotAsync_SendsDesktopTokenAndReadsActiveAgents()
+    {
+        string? receivedToken = null;
+        string? requestPath = null;
+        await using var client = CreateClient(request =>
+        {
+            receivedToken = request.Headers.GetValues(DesktopBridgeClient.TokenHeaderName).Single();
+            requestPath = request.RequestUri?.AbsolutePath;
+            return JsonResponse("""
+                [
+                  {
+                    "sequence": 19,
+                    "activityId": "agent-task-19",
+                    "source": "AgentsManager",
+                    "state": "Working",
+                    "title": "Agent collaboration",
+                    "detail": "safe summary",
+                    "progress": 42,
+                    "time": "2026-08-07T00:00:00Z",
+                    "isTerminal": false,
+                    "actionUrl": null
+                  }
+                ]
+                """);
+        });
+
+        var activities = await client.GetActivitySnapshotAsync(SiteUrl, Token);
+
+        Assert.AreEqual(Token, receivedToken);
+        Assert.AreEqual("/api/Senparc.Xncf.DesktopBridge/activities", requestPath);
+        Assert.AreEqual(1, activities.Count);
+        Assert.AreEqual("AgentsManager", activities[0].Source);
+        Assert.AreEqual(42, activities[0].Progress);
+    }
+
+    [TestMethod]
     public void TryCreateEndpoint_WhenBridgeReturnsCrossOriginAddress_BlocksTokenTarget()
     {
         var accepted = SiteEndpointPolicy.TryCreateEndpoint(

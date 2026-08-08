@@ -612,6 +612,14 @@ public partial class EmbeddedWebView : UserControl
         // ❌ 已禁用：防止标签切换时清理 WebView（会丢失登录状态）
         // CleanupWebView();
     }
+
+    /// <summary>
+    /// 工作区标签真正关闭时释放原生 WebView；普通标签切换仍通过 OnUnloaded 保留状态。
+    /// </summary>
+    public void DisposeWebView()
+    {
+        CleanupWebView();
+    }
     
     /// <summary>
     /// 清理 WebView 资源（修复 Windows ARM64 重新初始化问题）
@@ -634,6 +642,8 @@ public partial class EmbeddedWebView : UserControl
                         Debug.WriteLine("   ✓ WebView 已导航到空白页");
                     }
                     catch { /* 忽略导航失败 */ }
+
+                    _webView.NavigationCompleted -= OnWebViewNavigationCompleted;
                     
                     // 2. 从容器中移除
                     _webViewContainer?.Children.Remove(_webView);

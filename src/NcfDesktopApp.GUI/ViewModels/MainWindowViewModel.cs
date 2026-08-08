@@ -165,6 +165,9 @@ public partial class MainWindowViewModel : ViewModelBase
     private bool _desktopRobotWheelZoomEnabled;
 
     [ObservableProperty]
+    private DesktopRobotLayoutMode _desktopRobotLayoutMode = DesktopRobotLayoutMode.FreeFloating;
+
+    [ObservableProperty]
     private double _desktopRobotScale = DesktopRobotPlacementPolicy.MinimumScale;
 
     [ObservableProperty]
@@ -219,6 +222,8 @@ public partial class MainWindowViewModel : ViewModelBase
     private bool _isDesktopBridgeInstallActionVisible;
 
     public Action? ShowDesktopRobotRequested { get; set; }
+
+    public Action<DesktopRobotLayoutMode>? DesktopRobotLayoutModeChanged { get; set; }
 
     public Action? CreateWorkspaceWindowRequested { get; set; }
 
@@ -278,6 +283,30 @@ public partial class MainWindowViewModel : ViewModelBase
         NcfLaunchTargetKind.ExternalPublished or NcfLaunchTargetKind.SourceProject;
 
     public bool IsRemoteTargetMode => LaunchTargetKind == NcfLaunchTargetKind.RemoteSite;
+
+    public bool UsesFreeFloatingDesktopRobots
+    {
+        get => DesktopRobotLayoutMode == DesktopRobotLayoutMode.FreeFloating;
+        set
+        {
+            if (value)
+            {
+                DesktopRobotLayoutMode = DesktopRobotLayoutMode.FreeFloating;
+            }
+        }
+    }
+
+    public bool UsesGroupedDesktopRobotList
+    {
+        get => DesktopRobotLayoutMode == DesktopRobotLayoutMode.GroupedList;
+        set
+        {
+            if (value)
+            {
+                DesktopRobotLayoutMode = DesktopRobotLayoutMode.GroupedList;
+            }
+        }
+    }
 
     public bool IsTargetSelectionEnabled => !IsOperationInProgress && !_isNcfRunning;
 
@@ -501,6 +530,26 @@ public partial class MainWindowViewModel : ViewModelBase
 
     partial void OnDesktopRobotWheelZoomEnabledChanged(bool value) => SaveDesktopSettings();
 
+    partial void OnDesktopRobotLayoutModeChanged(DesktopRobotLayoutMode value)
+    {
+        var normalized = DesktopRobotLayoutModePolicy.Normalize(value);
+        if (normalized != value)
+        {
+            DesktopRobotLayoutMode = normalized;
+            return;
+        }
+
+        OnPropertyChanged(nameof(UsesFreeFloatingDesktopRobots));
+        OnPropertyChanged(nameof(UsesGroupedDesktopRobotList));
+        if (_suppressDesktopSettingsSave)
+        {
+            return;
+        }
+
+        SaveDesktopSettings();
+        DesktopRobotLayoutModeChanged?.Invoke(normalized);
+    }
+
     partial void OnDesktopRobotScaleChanged(double value)
     {
         var normalized = DesktopRobotPlacementPolicy.NormalizeScale(value, DesktopRobotMaximumScale);
@@ -608,6 +657,7 @@ public partial class MainWindowViewModel : ViewModelBase
     // 🚀 性能优化：批量日志处理
     private readonly Queue<string> _pendingCliLogs = new Queue<string>();
     private readonly System.Timers.Timer _logUpdateTimer;
+    private int _workspaceResourcesDisposed;
     private int _currentLineCount = 0;
     private ScrollViewer? _cachedScrollViewer;
     private const int MaxLogLines = 1000;
@@ -740,6 +790,7 @@ public partial class MainWindowViewModel : ViewModelBase
             TtsSpeed = TtsSpeed,
             TtsAutoRead = TtsAutoRead,
             DesktopRobotWheelZoomEnabled = DesktopRobotWheelZoomEnabled,
+            DesktopRobotLayoutMode = DesktopRobotLayoutMode,
             DesktopRobotScale = DesktopRobotScale,
             DesktopRobotMaximumScale = DesktopRobotMaximumScale,
             DesktopRobotPositionX = DesktopRobotPositionX,
@@ -764,6 +815,20 @@ public partial class MainWindowViewModel : ViewModelBase
         }
 
         SaveDesktopSettings();
+    }
+
+    internal void ApplyDesktopRobotLayoutModeFromShell(DesktopRobotLayoutMode mode)
+    {
+        var wasSuppressed = _suppressDesktopSettingsSave;
+        try
+        {
+            _suppressDesktopSettingsSave = true;
+            DesktopRobotLayoutMode = DesktopRobotLayoutModePolicy.Normalize(mode);
+        }
+        finally
+        {
+            _suppressDesktopSettingsSave = wasSuppressed;
+        }
     }
 
     internal void UpdateDesktopRobotScaleFromWindow(double scale)
@@ -1638,6 +1703,89 @@ public partial class MainWindowViewModel : ViewModelBase
     /// <summary>NCF 站点进程是否处于运行中（主窗口关闭前判断）。</summary>
     public bool IsNcfRunning => _isNcfRunning;
 
+    /// <summary>供主窗口或侧栏在关闭工作区前显示统一确认。</summary>
+    public Task<bool> ConfirmCloseAsync(
+        string title,
+        string message,
+        string okButtonText = "停止并关闭")
+    {
+        return ShowConfirmDialogAsync(
+            title,
+            message,
+            okButtonText,
+            "取消");
+    }
+
+    /// <summary>关闭某个工作区时仅停止该工作区的 NCF，不退出桌面应用。</summary>
+    public async Task StopForWorkspaceCloseAsync()
+    {
+        if (_isNcfRunning)
+        {
+            await StopNcfAsync().ConfigureAwait(true);
+        }
+    }
+
+    /// <summary>释放一个已从侧栏移除的工作区所持有的后台任务和共享服务订阅。</summary>
+    internal async Task DisposeWorkspaceResourcesAsync()
+    {
+        if (Interlocked.Exchange(ref _workspaceResourcesDisposed, 1) != 0)
+        {
+            return;
+        }
+
+        try
+        {
+            await StopForWorkspaceCloseAsync().ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            CrashDiagnosticService.ReportHandledException("停止已关闭工作区的 NCF", ex);
+        }
+
+        try
+        {
+            await StopDesktopAppUpdateMonitoringAsync().ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            CrashDiagnosticService.ReportHandledException("停止已关闭工作区的桌面更新检查", ex);
+        }
+
+        try
+        {
+            await _desktopBridgeClient.StopAsync().ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            CrashDiagnosticService.ReportHandledException("停止已关闭工作区的 DesktopBridge", ex);
+        }
+
+        try
+        {
+            await CancelVoiceInputForShutdownAsync().ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            CrashDiagnosticService.ReportHandledException("清理已关闭工作区的语音资源", ex);
+        }
+
+        _desktopBridgeClient.AvailabilityChanged -= OnDesktopBridgeAvailabilityChanged;
+        _desktopBridgeClient.ActivityReceived -= OnDesktopActivityReceived;
+        _desktopBridgeClient.AuthorizedSyncReceived -= OnDesktopAuthorizedSyncReceived;
+        _desktopBridgeClient.AuthorizedSyncAuthorizationFailed -= OnDesktopAuthorizedSyncAuthorizationFailed;
+        _desktopBridgeClient.SessionRevoked -= OnDesktopBridgeSessionRevoked;
+        StopAgentPortalSynchronization();
+        StopNeuBellSynchronization();
+        _adminChatClient.ClearAuthentication();
+
+        _cancellationTokenSource?.Cancel();
+        _cancellationTokenSource?.Dispose();
+        _cancellationTokenSource = null;
+        _logUpdateTimer.Stop();
+        _logUpdateTimer.Elapsed -= OnLogUpdateTimerElapsed;
+        _logUpdateTimer.Dispose();
+    }
+
     /// <summary>
     /// 主窗口即将关闭：若 NCF 在运行则弹框确认并停止进程；返回 <c>true</c> 表示可以关闭窗口。
     /// </summary>
@@ -1719,6 +1867,8 @@ public partial class MainWindowViewModel : ViewModelBase
                 TtsSpeed = Math.Clamp(desktopSettings.TtsSpeed, 0.5, 2.0);
                 TtsAutoRead = desktopSettings.TtsAutoRead;
                 DesktopRobotWheelZoomEnabled = desktopSettings.DesktopRobotWheelZoomEnabled;
+                DesktopRobotLayoutMode = DesktopRobotLayoutModePolicy.Normalize(
+                    desktopSettings.DesktopRobotLayoutMode);
                 DesktopRobotMaximumScale = DesktopRobotPlacementPolicy.NormalizeMaximumScale(
                     desktopSettings.DesktopRobotMaximumScale);
                 DesktopRobotScale = DesktopRobotPlacementPolicy.NormalizeScale(

@@ -5,22 +5,20 @@
         x:Class="NcfDesktopApp.GUI.Views.DesktopRobotWindow"
         x:DataType="vm:DesktopRobotViewModel"
         Title="NCF 桌面助手"
-        Width="360"
-        Height="154"
+        Width="174"
+        Height="128"
         MinWidth="0"
-        MinHeight="140"
+        MinHeight="0"
         CanResize="False"
         ShowInTaskbar="False"
         Topmost="True"
         SystemDecorations="None"
         TransparencyLevelHint="Transparent"
-        Background="Transparent"
-        ExtendClientAreaToDecorationsHint="True"
-        ExtendClientAreaChromeHints="NoChrome">
+        Background="Transparent">
 
     <Canvas x:Name="RootSurface"
-          Width="344"
-          Height="138"
+          Width="158"
+          Height="112"
           Margin="8"
           HorizontalAlignment="Left"
           VerticalAlignment="Top"
@@ -31,6 +29,13 @@
             <ContextMenu>
                 <MenuItem Header="AdminChat 语音输入"
                           Click="VoiceInputMenuItem_OnClick"/>
+                <MenuItem Header="Agents 空间透视"
+                          IsEnabled="{Binding IsAgentPortalAvailable}"
+                          Click="AgentPortalMenuItem_OnClick"/>
+                <MenuItem Header="打开纽铃提醒"
+                          IsEnabled="{Binding HasNeuBellNotifications}"
+                          ToolTip.Tip="{Binding NeuBellSummary}"
+                          Click="NeuBellMenuItem_OnClick"/>
                 <Separator/>
                 <MenuItem Header="自动跟随工作状态"
                           Click="MascotAutoMenuItem_OnClick"/>
@@ -54,7 +59,7 @@
         <Border x:Name="ExpandedCard"
                 IsVisible="False"
                 ZIndex="10"
-                Width="302"
+                Width="342"
                 Height="138"
                 Padding="76,40,12,12"
                 CornerRadius="18"
@@ -85,7 +90,7 @@
                              Margin="0,1,0,1"/>
 
                 <Grid Grid.Row="3"
-                      ColumnDefinitions="*,Auto,Auto"
+                      ColumnDefinitions="*,Auto,Auto,Auto"
                       ColumnSpacing="8">
                     <TextBlock Text="{Binding ConnectionText}"
                                FontSize="10"
@@ -115,6 +120,16 @@
                         </Viewbox>
                     </Button>
                     <Button Grid.Column="2"
+                            Content="{Binding AgentPortalActionText}"
+                            IsEnabled="{Binding IsAgentPortalAvailable}"
+                            FontSize="10"
+                            Padding="9,4"
+                            Background="#6D28D9"
+                            Foreground="White"
+                            CornerRadius="8"
+                            ToolTip.Tip="{Binding AgentPortalStatusText}"
+                            Click="AgentPortalButton_OnClick"/>
+                    <Button Grid.Column="3"
                             Content="打开 NCF"
                             FontSize="10"
                             Padding="10,4"
@@ -185,7 +200,8 @@
             <controls:AudioGlowRingView Mode="{Binding AudioVisualizationMode}"
                                         Level="{Binding AudioVisualizationLevel}"
                                         Bands="{Binding AudioVisualizationBands}"
-                                        InnerDiameter="64"/>
+                                        InnerDiameter="64"
+                                        IsVisible="{Binding IsMascotVisible}"/>
             <Border Width="64"
                     Height="64"
                     CornerRadius="32"
@@ -194,7 +210,8 @@
                     BorderThickness="2"
                     BoxShadow="0 2 9 0 #2D000000"
                     HorizontalAlignment="Center"
-                    VerticalAlignment="Center">
+                    VerticalAlignment="Center"
+                    IsVisible="{Binding IsMascotVisible}">
                 <controls:NcfMascotView x:Name="MascotView"
                                         Mascot="{Binding Mascot}"
                                         Pose="{Binding Pose}"
@@ -207,6 +224,33 @@
                                         Height="61"
                                         ToolTip.Tip="{Binding MascotName}"/>
             </Border>
+            <controls:AgentPortalView Width="112"
+                                      Height="112"
+                                      IsOpen="{Binding IsAgentPortalOpen}"
+                                      Nodes="{Binding AgentPortalNodes}"
+                                      HorizontalAlignment="Center"
+                                      VerticalAlignment="Center"/>
+            <Button ZIndex="60"
+                    Width="30"
+                    Height="30"
+                    Padding="0"
+                    Margin="0,3,3,0"
+                    HorizontalAlignment="Right"
+                    VerticalAlignment="Top"
+                    HorizontalContentAlignment="Center"
+                    VerticalContentAlignment="Center"
+                    Background="#E11D48"
+                    BorderBrush="#FFFFFFFF"
+                    BorderThickness="2"
+                    CornerRadius="15"
+                    Foreground="White"
+                    FontSize="9"
+                    FontWeight="Bold"
+                    Content="{Binding NeuBellBadgeText}"
+                    IsVisible="{Binding HasNeuBellNotifications}"
+                    ToolTip.Tip="{Binding NeuBellSummary}"
+                    PointerPressed="NeuBellButton_OnPointerPressed"
+                    Click="NeuBellButton_OnClick"/>
         </Grid>
     </Canvas>
 </Window>

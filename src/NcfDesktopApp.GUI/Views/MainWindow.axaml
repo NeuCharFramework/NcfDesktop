@@ -3,144 +3,204 @@
         xmlns:vm="using:NcfDesktopApp.GUI.ViewModels"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        xmlns:views="using:NcfDesktopApp.GUI.Views"
-        mc:Ignorable="d" d:DesignWidth="1040" d:DesignHeight="860"
+        mc:Ignorable="d"
+        d:DesignWidth="1280"
+        d:DesignHeight="860"
         x:Class="NcfDesktopApp.GUI.Views.MainWindow"
-        x:DataType="vm:MainWindowViewModel"
-        Title="NCF Agent Workspace"
-        Width="1040" Height="860"
-        MinWidth="820" MinHeight="600"
+        x:DataType="vm:WorkspaceShellViewModel"
+        Title="NCF Desktop"
+        Width="1280" Height="860"
+        MinWidth="980" MinHeight="600"
         WindowStartupLocation="CenterScreen"
         Icon="/Assets/NCF-logo.png"
         KeyDown="OnMainWindowKeyDown">
 
-    <!-- macOS：Edit 菜单负责把 ⌘C/⌘V/⌘X/⌘A 接入应用；WKWebView 本身不会自动处理这些快捷键 -->
+    <!-- macOS：Edit 菜单负责把 ⌘C/⌘V/⌘X/⌘A 接入当前工作区的 WKWebView。 -->
     <NativeMenu.Menu>
         <NativeMenu>
             <NativeMenuItem Header="Edit">
                 <NativeMenu>
-                    <NativeMenuItem Header="Cut"
-                                    Gesture="Meta+X"
-                                    Click="OnEditCutClick"/>
-                    <NativeMenuItem Header="Copy"
-                                    Gesture="Meta+C"
-                                    Click="OnEditCopyClick"/>
-                    <NativeMenuItem Header="Paste"
-                                    Gesture="Meta+V"
-                                    Click="OnEditPasteClick"/>
+                    <NativeMenuItem Header="Cut" Gesture="Meta+X" Click="OnEditCutClick"/>
+                    <NativeMenuItem Header="Copy" Gesture="Meta+C" Click="OnEditCopyClick"/>
+                    <NativeMenuItem Header="Paste" Gesture="Meta+V" Click="OnEditPasteClick"/>
                     <NativeMenuItemSeparator/>
-                    <NativeMenuItem Header="Select All"
-                                    Gesture="Meta+A"
-                                    Click="OnEditSelectAllClick"/>
+                    <NativeMenuItem Header="Select All" Gesture="Meta+A" Click="OnEditSelectAllClick"/>
                 </NativeMenu>
             </NativeMenuItem>
         </NativeMenu>
     </NativeMenu.Menu>
 
     <Window.Styles>
-        <!-- 卡片样式 - 支持主题切换 -->
-        <Style Selector="Border.card">
-            <Setter Property="Background" Value="{DynamicResource CardBackgroundBrush}"/>
-            <Setter Property="BorderBrush" Value="{DynamicResource CardBorderBrush}"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="CornerRadius" Value="8"/>
-            <Setter Property="Padding" Value="20"/>
-            <Setter Property="BoxShadow" Value="0 2 4 0 #1A000000"/>
-        </Style>
-        
-        <!-- TabItem 基础样式 -->
-        <Style Selector="TabItem">
-            <Setter Property="FontSize" Value="14"/>
-            <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="Padding" Value="20,12"/>
-        </Style>
-        
-        <!-- TabItem 选中状态 -->
-        <Style Selector="TabItem:selected">
-            <Setter Property="Background" Value="#007ACC"/>
-            <Setter Property="Foreground" Value="White"/>
-        </Style>
-
-        <!-- 自定义浏览器标签页样式 -->
-        <Style Selector="TabItem.browser-tab">
-            <Setter Property="Padding" Value="15,8"/>
-        </Style>
-        
-        <!-- 🔧 方案1最终版：自定义标签按钮样式 -->
-        <Style Selector="Button.tab-button">
+        <Style Selector="ListBox.workspace-list">
             <Setter Property="Background" Value="Transparent"/>
             <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="CornerRadius" Value="0"/>
-            <Setter Property="Cursor" Value="Hand"/>
         </Style>
-        
-        <Style Selector="Button.tab-button:pointerover">
-            <Setter Property="Background" Value="#E0E0E0"/>
+
+        <Style Selector="ListBox.workspace-list ListBoxItem">
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Margin" Value="0,0,0,6"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="CornerRadius" Value="9"/>
+        </Style>
+
+        <Style Selector="ListBox.workspace-list ListBoxItem:selected">
+            <Setter Property="Background" Value="#182563EB"/>
+        </Style>
+
+        <Style Selector="Button.sidebar-icon">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="CornerRadius" Value="7"/>
+            <Setter Property="Padding" Value="7"/>
+        </Style>
+
+        <Style Selector="Button.sidebar-icon:pointerover">
+            <Setter Property="Background" Value="#14000000"/>
         </Style>
     </Window.Styles>
 
-    <Grid ClipToBounds="True">
-        <!-- 标签栏独占一行，内容区 * 获得明确剩余高度，避免子控件在「无限高」测量下无法滚动、底部被裁切 -->
-        <Grid RowDefinitions="Auto,*" ZIndex="1" ClipToBounds="True">
-            <StackPanel Grid.Row="0"
-                       Orientation="Horizontal"
-                       Background="{DynamicResource CardBackgroundBrush}"
-                       HorizontalAlignment="Stretch"
-                       VerticalAlignment="Top"
-                       ZIndex="100">
-                <Button Content="◈ Agent 工作台"
-                       Command="{Binding SwitchToSettingsCommand}"
-                       Background="{Binding SettingsTabButtonBackground}"
-                       Foreground="{Binding SettingsTabButtonForeground}"
-                       Padding="20,12"
-                       FontSize="14"
-                       FontWeight="SemiBold"
-                       Margin="0,0,1,0"
-                       Classes="tab-button settings-tab"/>
-                <Button Content="↗ 运行站点"
-                       Command="{Binding SwitchToBrowserCommand}"
-                       Background="{Binding BrowserTabButtonBackground}"
-                       Foreground="{Binding BrowserTabButtonForeground}"
-                       Padding="20,12"
-                       FontSize="14"
-                       FontWeight="SemiBold"
-                       IsVisible="{Binding IsBrowserTabVisible}"
-                       Classes="tab-button browser-tab"/>
-            </StackPanel>
+    <Grid ColumnDefinitions="Auto,*" ClipToBounds="True">
+        <Border Grid.Column="0"
+                Width="{Binding SidebarWidth}"
+                Background="{DynamicResource ToolbarBackgroundBrush}"
+                BorderBrush="{DynamicResource ToolbarBorderBrush}"
+                BorderThickness="0,0,1,0"
+                Padding="10">
+            <Grid RowDefinitions="Auto,*,Auto" MinWidth="0">
+                <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="2,2,2,12">
+                    <StackPanel Grid.Column="0"
+                                Orientation="Horizontal"
+                                Spacing="8"
+                                VerticalAlignment="Center">
+                        <Image Source="/Assets/NCF-logo.png"
+                               Width="28"
+                               Height="28"
+                               IsVisible="{Binding IsSidebarExpanded}"/>
+                        <StackPanel IsVisible="{Binding IsSidebarExpanded}" Spacing="0">
+                            <TextBlock Text="{Binding SidebarTitle}"
+                                       FontSize="14"
+                                       FontWeight="SemiBold"/>
+                            <TextBlock Text="统一管理运行实例"
+                                       FontSize="9.5"
+                                       Foreground="{DynamicResource SecondaryTextBrush}"/>
+                        </StackPanel>
+                    </StackPanel>
 
-            <Grid Grid.Row="1"
-                  VerticalAlignment="Stretch"
-                  MinHeight="0"
-                  ClipToBounds="True">
-                <views:SettingsView DataContext="{Binding}"
-                                   IsVisible="{Binding IsSettingsTabActive}"
-                                   VerticalAlignment="Stretch"/>
-                <views:BrowserView DataContext="{Binding}"
-                                  IsVisible="{Binding IsBrowserTabActive}"
-                                  VerticalAlignment="Stretch"/>
+                    <Button Grid.Column="1"
+                            Content="{Binding SidebarToggleGlyph}"
+                            Command="{Binding ToggleSidebarCommand}"
+                            Classes="sidebar-icon"
+                            FontSize="19"
+                            ToolTip.Tip="展开或收起工作区侧栏"/>
+                </Grid>
+
+                <ListBox Grid.Row="1"
+                         ItemsSource="{Binding Workspaces}"
+                         SelectedItem="{Binding SelectedWorkspace, Mode=TwoWay}"
+                         Classes="workspace-list"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                         ScrollViewer.VerticalScrollBarVisibility="Auto">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate x:DataType="vm:WorkspaceTabViewModel">
+                            <Grid ColumnDefinitions="Auto,*,Auto"
+                                  MinHeight="56"
+                                  Margin="8,7">
+                                <Grid Grid.Column="0"
+                                      Width="34"
+                                      Height="34"
+                                      VerticalAlignment="Center">
+                                    <Border Background="#142563EB" CornerRadius="8"/>
+                                    <TextBlock Text="{Binding CompactTitle}"
+                                               HorizontalAlignment="Center"
+                                               VerticalAlignment="Center"
+                                               FontSize="12"
+                                               FontWeight="Bold"
+                                               Foreground="#2563EB"/>
+                                    <Border Width="9"
+                                            Height="9"
+                                            CornerRadius="5"
+                                            Background="{Binding StatusColor}"
+                                            BorderBrush="{DynamicResource ToolbarBackgroundBrush}"
+                                            BorderThickness="2"
+                                            HorizontalAlignment="Right"
+                                            VerticalAlignment="Bottom"/>
+                                </Grid>
+
+                                <StackPanel Grid.Column="1"
+                                            Margin="9,0,4,0"
+                                            VerticalAlignment="Center"
+                                            IsVisible="{Binding IsSidebarExpanded}"
+                                            Spacing="2">
+                                    <TextBlock Text="{Binding Title}"
+                                               TextTrimming="CharacterEllipsis"
+                                               FontSize="12.5"
+                                               FontWeight="SemiBold"/>
+                                    <TextBlock Text="{Binding StatusText}"
+                                               TextTrimming="CharacterEllipsis"
+                                               FontSize="10"
+                                               Foreground="{DynamicResource SecondaryTextBrush}"/>
+                                </StackPanel>
+
+                                <Button Grid.Column="2"
+                                        Content="×"
+                                        Command="{Binding CloseCommand}"
+                                        IsVisible="{Binding IsSidebarExpanded}"
+                                        Classes="sidebar-icon"
+                                        VerticalAlignment="Center"
+                                        ToolTip.Tip="关闭此工作区"/>
+                            </Grid>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+
+                <Button Grid.Row="2"
+                        Command="{Binding CreateWorkspaceCommand}"
+                        HorizontalAlignment="Stretch"
+                        HorizontalContentAlignment="Center"
+                        Padding="10,9"
+                        Margin="1,10,1,1"
+                        Background="#102563EB"
+                        BorderBrush="#302563EB"
+                        BorderThickness="1"
+                        CornerRadius="8"
+                        ToolTip.Tip="新建 NCF 工作区标签">
+                    <StackPanel Orientation="Horizontal" Spacing="7">
+                        <TextBlock Text="＋" FontSize="16" FontWeight="SemiBold"/>
+                        <TextBlock Text="新建工作区"
+                                   IsVisible="{Binding IsSidebarExpanded}"
+                                   VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Button>
             </Grid>
-        </Grid>
-        
-        <!-- 全局加载遮罩 -->
-        <Border Background="{DynamicResource ContentBackgroundBrush}" 
-                Opacity="0.95"
-                IsVisible="{Binding IsInitializing}"
-                ZIndex="1000">
-            <StackPanel HorizontalAlignment="Center" 
-                        VerticalAlignment="Center" 
-                        Spacing="20">
-                <TextBlock Text="🚀" 
-                           FontSize="48" 
-                           HorizontalAlignment="Center"/>
-                <TextBlock Text="正在初始化 NCF 桌面应用程序..." 
-                           FontSize="16" 
-                           HorizontalAlignment="Center" 
-                           Foreground="{DynamicResource SecondaryTextBrush}"/>
-                <ProgressBar IsIndeterminate="True" 
-                             Width="300" 
-                             Height="4"/>
-            </StackPanel>
+        </Border>
+
+        <Border Grid.Column="1" Background="{DynamicResource ContentBackgroundBrush}">
+            <Grid>
+                <ContentControl Content="{Binding SelectedWorkspace.ContentView}"
+                                HorizontalContentAlignment="Stretch"
+                                VerticalContentAlignment="Stretch"
+                                IsVisible="{Binding HasWorkspaces}"/>
+
+                <StackPanel HorizontalAlignment="Center"
+                            VerticalAlignment="Center"
+                            Spacing="14"
+                            IsVisible="{Binding HasNoWorkspaces}">
+                    <Image Source="/Assets/NCF-logo.png" Width="64" Height="64" Opacity="0.75"/>
+                    <TextBlock Text="还没有打开的 NCF 工作区"
+                               FontSize="18"
+                               FontWeight="SemiBold"
+                               HorizontalAlignment="Center"/>
+                    <TextBlock Text="从左侧新建一个标签，NCF、浏览器和 Agent 会在其中独立运行。"
+                               Foreground="{DynamicResource SecondaryTextBrush}"
+                               HorizontalAlignment="Center"/>
+                    <Button Content="新建工作区"
+                            Command="{Binding CreateWorkspaceCommand}"
+                            HorizontalAlignment="Center"
+                            Padding="18,9"
+                            Background="#2563EB"
+                            Foreground="White"/>
+                </StackPanel>
+            </Grid>
         </Border>
     </Grid>
-
 </Window>

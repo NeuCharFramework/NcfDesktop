@@ -315,6 +315,146 @@ public sealed class AdminChatClientTests
         Assert.IsTrue(requests.All(request => request.Authorization == "Bearer jwt-in-memory"));
     }
 
+    [TestMethod]
+    public async Task GetAgentGraphSnapshotAsync_UsesMemoryOnlyAdminTokenAndReadsSafeProjection()
+    {
+        string? graphAuthorization = null;
+        string? graphPath = null;
+        var client = CreateClient(request =>
+        {
+            var path = request.RequestUri?.PathAndQuery ?? string.Empty;
+            if (path.Contains("AdminUserInfoAppService.LoginAsync", StringComparison.Ordinal))
+            {
+                return LoginResponse();
+            }
+
+            if (path.Contains("GetSessionListAsync", StringComparison.Ordinal))
+            {
+                return EmptySessionsResponse();
+            }
+
+            graphAuthorization = request.Headers.Authorization?.ToString();
+            graphPath = path;
+            return JsonResponse("""
+                {
+                  "success": true,
+                  "data": {
+                    "agents": [
+                      { "id": 8, "name": "Planner", "chattingCount": 2, "enable": true, "promptCode": "not-copied" }
+                    ],
+                    "groups": [],
+                    "links": [],
+                    "collaborations": [
+                      { "taskId": 19, "groupId": 3, "taskName": "Plan", "status": 1, "agentIds": [8] }
+                    ]
+                  }
+                }
+                """);
+        });
+        await client.AuthenticateAsync(SiteUrl, "admin", "secret");
+
+        var snapshot = await client.GetAgentGraphSnapshotAsync(SiteUrl);
+
+        Assert.AreEqual("Bearer jwt-in-memory", graphAuthorization);
+        StringAssert.Contains(graphPath, "GetAgentGraphSnapshot");
+        Assert.AreEqual("Planner", snapshot.Agents.Single().Name);
+        Assert.AreEqual(2, snapshot.Agents.Single().ChattingCount);
+        CollectionAssert.AreEqual(new[] { 8 }, snapshot.Collaborations.Single().AgentIds);
+    }
+
+    [TestMethod]
+    public async Task GetNeuBellStateAsync_UsesMemoryOnlyAdminToken_AndAcceptsDirectControllerJson()
+    {
+        string? neuBellAuthorization = null;
+        string? neuBellPath = null;
+        var client = CreateClient(request =>
+        {
+            var path = request.RequestUri?.PathAndQuery ?? string.Empty;
+            if (path.Contains("AdminUserInfoAppService.LoginAsync", StringComparison.Ordinal))
+            {
+                return LoginResponse();
+            }
+
+            if (path.Contains("GetSessionListAsync", StringComparison.Ordinal))
+            {
+                return EmptySessionsResponse();
+            }
+
+            neuBellAuthorization = request.Headers.Authorization?.ToString();
+            neuBellPath = path;
+            return JsonResponse("""
+                {
+                  "serverTime": "2026-08-07T10:00:00+08:00",
+                  "providers": [
+                    {
+                      "providerId": "desktop-bridge-pairing",
+                      "moduleUid": "bridge-uid",
+                      "displayName": "DesktopBridge",
+                      "icon": "fa fa-desktop",
+                      "defaultVisible": true,
+                      "items": [
+                        {
+                          "id": "pending-pairings",
+                          "title": "远程连接审核",
+                          "summary": "有 2 个设备等待处理。",
+                          "count": 2,
+                          "severity": "warning",
+                          "detailUrl": "/Admin/DesktopBridge/Index?uid=bridge-uid",
+                          "updatedAt": "2026-08-07T10:00:00+08:00"
+                        }
+                      ]
+                    }
+                  ]
+                }
+                """);
+        });
+        await client.AuthenticateAsync(SiteUrl, "admin", "secret");
+
+        var state = await client.GetNeuBellStateAsync(SiteUrl);
+
+        Assert.AreEqual("Bearer jwt-in-memory", neuBellAuthorization);
+        Assert.AreEqual("/api/Senparc.Areas.Admin/neubell/state", neuBellPath);
+        Assert.AreEqual(2, state.Providers.Single().Items.Single().Count);
+        Assert.AreEqual("warning", state.Providers.Single().Items.Single().Severity);
+    }
+
+    [TestMethod]
+    public async Task WaitForNeuBellChangeAsync_ReadsNamedEventWithBearerHeader()
+    {
+        string? eventAuthorization = null;
+        var client = CreateClient(request =>
+        {
+            var path = request.RequestUri?.PathAndQuery ?? string.Empty;
+            if (path.Contains("AdminUserInfoAppService.LoginAsync", StringComparison.Ordinal))
+            {
+                return LoginResponse();
+            }
+
+            if (path.Contains("GetSessionListAsync", StringComparison.Ordinal))
+            {
+                return EmptySessionsResponse();
+            }
+
+            eventAuthorization = request.Headers.Authorization?.ToString();
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""
+                    : connected
+
+                    event: neubell-changed
+                    data: {"providerId":"desktop-bridge-pairing"}
+
+                    """, Encoding.UTF8, "text/event-stream")
+            };
+        });
+        await client.AuthenticateAsync(SiteUrl, "admin", "secret");
+
+        var changed = await client.WaitForNeuBellChangeAsync(SiteUrl);
+
+        Assert.IsTrue(changed);
+        Assert.AreEqual("Bearer jwt-in-memory", eventAuthorization);
+    }
+
     private static AdminChatClient CreateClient(Func<HttpRequestMessage, HttpResponseMessage> responseFactory)
     {
         return new AdminChatClient(new HttpClient(new StubHttpMessageHandler(responseFactory))

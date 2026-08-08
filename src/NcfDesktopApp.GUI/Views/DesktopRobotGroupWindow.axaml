@@ -1,0 +1,277 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:NcfDesktopApp.GUI.ViewModels"
+        xmlns:controls="using:NcfDesktopApp.GUI.Views.Controls"
+        x:Class="NcfDesktopApp.GUI.Views.DesktopRobotGroupWindow"
+        x:DataType="vm:WorkspaceShellViewModel"
+        Title="NCF 宠物列表"
+        Width="376"
+        MinWidth="376"
+        MaxWidth="376"
+        MinHeight="126"
+        MaxHeight="620"
+        SizeToContent="Height"
+        CanResize="False"
+        ShowInTaskbar="False"
+        Topmost="True"
+        SystemDecorations="None"
+        TransparencyLevelHint="Transparent"
+        Background="Transparent"
+        ExtendClientAreaToDecorationsHint="True"
+        ExtendClientAreaChromeHints="NoChrome">
+
+    <Window.Styles>
+        <Style Selector="Border.robot-list-row">
+            <Setter Property="Background" Value="#F8FFFFFF"/>
+            <Setter Property="BorderBrush" Value="#160F172A"/>
+            <Setter Property="BorderThickness" Value="0,0,0,1"/>
+        </Style>
+        <Style Selector="Border.robot-list-row:pointerover">
+            <Setter Property="Background" Value="#ECF4FFFF"/>
+        </Style>
+        <Style Selector="Button.robot-list-action">
+            <Setter Property="MinWidth" Value="48"/>
+            <Setter Property="Height" Value="28"/>
+            <Setter Property="Padding" Value="8,2"/>
+            <Setter Property="CornerRadius" Value="7"/>
+            <Setter Property="FontSize" Value="10.5"/>
+        </Style>
+    </Window.Styles>
+
+    <Border Margin="8"
+            CornerRadius="16"
+            Background="#F5FFFFFF"
+            BorderBrush="#300F5FAE"
+            BorderThickness="1"
+            BoxShadow="0 10 28 0 #46000000"
+            ClipToBounds="True">
+        <Grid RowDefinitions="Auto,*">
+            <Border Grid.Row="0"
+                    Padding="14,10"
+                    Background="#F20F5FAE"
+                    PointerPressed="Header_OnPointerPressed">
+                <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="9">
+                    <Border Grid.Column="0"
+                            Width="28"
+                            Height="28"
+                            CornerRadius="9"
+                            Background="#24FFFFFF">
+                        <TextBlock Text="✦"
+                                   Foreground="White"
+                                   FontSize="16"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center"/>
+                    </Border>
+                    <StackPanel Grid.Column="1" Spacing="0" VerticalAlignment="Center">
+                        <TextBlock Text="NCF 宠物"
+                                   Foreground="White"
+                                   FontWeight="SemiBold"
+                                   FontSize="13.5"/>
+                        <TextBlock Text="拖动标签移动 · 双击宠物语音输入"
+                                   Foreground="#DCEBFF"
+                                   FontSize="9.5"/>
+                    </StackPanel>
+                    <Border Grid.Column="2"
+                            Padding="8,3"
+                            CornerRadius="9"
+                            Background="#24FFFFFF"
+                            VerticalAlignment="Center">
+                        <TextBlock Text="{Binding WorkspaceCountText}"
+                                   Foreground="White"
+                                   FontSize="10"
+                                   FontWeight="SemiBold"/>
+                    </Border>
+                    <Button Grid.Column="3"
+                            Content="×"
+                            Width="28"
+                            Height="28"
+                            Padding="0"
+                            Background="Transparent"
+                            Foreground="White"
+                            BorderThickness="0"
+                            FontSize="18"
+                            ToolTip.Tip="隐藏宠物列表；可从设置中重新显示"
+                            Click="HideButton_OnClick"/>
+                </Grid>
+            </Border>
+
+            <ListBox Grid.Row="1"
+                     ItemsSource="{Binding Workspaces}"
+                     MaxHeight="470"
+                     Background="Transparent"
+                     BorderThickness="0"
+                     Padding="0"
+                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                     ScrollViewer.VerticalScrollBarVisibility="Auto">
+                <ListBox.Styles>
+                    <Style Selector="ListBoxItem">
+                        <Setter Property="Padding" Value="0"/>
+                        <Setter Property="Margin" Value="0"/>
+                        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                    </Style>
+                    <Style Selector="ListBoxItem:selected">
+                        <Setter Property="Background" Value="Transparent"/>
+                    </Style>
+                </ListBox.Styles>
+                <ListBox.ItemTemplate>
+                    <DataTemplate x:DataType="vm:WorkspaceTabViewModel">
+                        <Border Classes="robot-list-row"
+                                Padding="11,9"
+                                DoubleTapped="RobotRow_OnDoubleTapped"
+                                PointerPressed="RobotRow_OnPointerPressed"
+                                PointerMoved="RobotRow_OnPointerMoved"
+                                PointerExited="RobotRow_OnPointerExited"
+                                ToolTip.Tip="双击开始或停止此工作区的 AdminChat 语音输入">
+                            <Border.ContextMenu>
+                                <ContextMenu>
+                                    <MenuItem Header="AdminChat 语音输入"
+                                              Click="VoiceMenuItem_OnClick"/>
+                                    <MenuItem Header="Agents 空间透视"
+                                              IsEnabled="{Binding Workspace.Robot.IsAgentPortalAvailable}"
+                                              Click="AgentPortalMenuItem_OnClick"/>
+                                    <MenuItem Header="打开纽铃提醒"
+                                              IsEnabled="{Binding Workspace.Robot.HasNeuBellNotifications}"
+                                              ToolTip.Tip="{Binding Workspace.Robot.NeuBellSummary}"
+                                              Click="NeuBellMenuItem_OnClick"/>
+                                    <MenuItem Header="打开此工作区"
+                                              Click="OpenMenuItem_OnClick"/>
+                                    <MenuItem Header="宠物设置"
+                                              Click="SettingsMenuItem_OnClick"/>
+                                    <Separator/>
+                                    <MenuItem Header="自动跟随工作状态"
+                                              Click="MascotAutoMenuItem_OnClick"/>
+                                    <MenuItem Header="Nono · 默认助手"
+                                              Tag="Nono"
+                                              Click="MascotMenuItem_OnClick"/>
+                                    <MenuItem Header="Cici · Agent / Chat"
+                                              Tag="Cici"
+                                              Click="MascotMenuItem_OnClick"/>
+                                    <MenuItem Header="Qiao · Bridge / EventBus"
+                                              Tag="Qiao"
+                                              Click="MascotMenuItem_OnClick"/>
+                                    <MenuItem Header="Opsi · 构建 / 错误"
+                                              Tag="Opsi"
+                                              Click="MascotMenuItem_OnClick"/>
+                                </ContextMenu>
+                            </Border.ContextMenu>
+
+                            <Grid ColumnDefinitions="62,*,Auto" ColumnSpacing="8">
+                                <Grid Grid.Column="0" Width="58" Height="58">
+                                    <controls:AudioGlowRingView Mode="{Binding Workspace.Robot.AudioVisualizationMode}"
+                                                                Level="{Binding Workspace.Robot.AudioVisualizationLevel}"
+                                                                Bands="{Binding Workspace.Robot.AudioVisualizationBands}"
+                                                                InnerDiameter="42"
+                                                                IsVisible="{Binding Workspace.Robot.IsMascotVisible}"/>
+                                    <Border Width="44"
+                                            Height="44"
+                                            CornerRadius="22"
+                                            Background="#F9FFFFFF"
+                                            BorderBrush="{Binding Workspace.Robot.StateColor}"
+                                            BorderThickness="2"
+                                            BoxShadow="0 2 7 0 #26000000"
+                                            HorizontalAlignment="Center"
+                                            VerticalAlignment="Center"
+                                            IsVisible="{Binding Workspace.Robot.IsMascotVisible}">
+                                        <controls:NcfMascotView Mascot="{Binding Workspace.Robot.Mascot}"
+                                                                Pose="{Binding Workspace.Robot.Pose}"
+                                                                ShowGlasses="True"
+                                                                ShowAudioAura="False"
+                                                                GazeX="{Binding Workspace.Robot.GazeX}"
+                                                                GazeY="{Binding Workspace.Robot.GazeY}"
+                                                                IsInteracting="{Binding Workspace.Robot.IsInteracting}"
+                                                                Width="42"
+                                                                Height="42"/>
+                                    </Border>
+                                    <controls:AgentPortalView Width="58"
+                                                              Height="58"
+                                                              IsOpen="{Binding Workspace.Robot.IsAgentPortalOpen}"
+                                                              Nodes="{Binding Workspace.Robot.AgentPortalNodes}"/>
+                                    <Button ZIndex="60"
+                                            Width="24"
+                                            Height="24"
+                                            Padding="0"
+                                            HorizontalAlignment="Right"
+                                            VerticalAlignment="Top"
+                                            HorizontalContentAlignment="Center"
+                                            VerticalContentAlignment="Center"
+                                            Background="#E11D48"
+                                            BorderBrush="White"
+                                            BorderThickness="1.5"
+                                            CornerRadius="12"
+                                            Foreground="White"
+                                            FontSize="7.5"
+                                            FontWeight="Bold"
+                                            Content="{Binding Workspace.Robot.NeuBellBadgeText}"
+                                            IsVisible="{Binding Workspace.Robot.HasNeuBellNotifications}"
+                                            ToolTip.Tip="{Binding Workspace.Robot.NeuBellSummary}"
+                                            PointerPressed="NeuBellButton_OnPointerPressed"
+                                            Click="NeuBellButton_OnClick"/>
+                                </Grid>
+
+                                <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center">
+                                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
+                                        <TextBlock Grid.Column="0"
+                                                   Text="{Binding Title}"
+                                                   FontSize="12.5"
+                                                   FontWeight="SemiBold"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <Border Grid.Column="1"
+                                                Padding="7,2"
+                                                CornerRadius="8"
+                                                Background="{Binding Workspace.Robot.StateColor}">
+                                            <TextBlock Text="{Binding Workspace.Robot.StateText}"
+                                                       Foreground="White"
+                                                       FontSize="9"
+                                                       FontWeight="SemiBold"/>
+                                        </Border>
+                                    </Grid>
+                                    <TextBlock Text="{Binding Workspace.Robot.Title}"
+                                               FontSize="9.5"
+                                               Foreground="#475569"
+                                               FontWeight="SemiBold"
+                                               TextTrimming="CharacterEllipsis"
+                                               MaxLines="1"/>
+                                    <TextBlock Text="{Binding Workspace.Robot.Detail}"
+                                               FontSize="10.5"
+                                               Foreground="#475569"
+                                               TextTrimming="CharacterEllipsis"
+                                               MaxLines="1"/>
+                                    <ProgressBar Value="{Binding Workspace.Robot.Progress}"
+                                                 IsVisible="{Binding Workspace.Robot.IsProgressVisible}"
+                                                 Height="3"/>
+                                    <TextBlock Text="{Binding Workspace.Robot.ConnectionText}"
+                                               FontSize="9.5"
+                                               Foreground="#64748B"
+                                               TextTrimming="CharacterEllipsis"
+                                               MaxLines="1"/>
+                                </StackPanel>
+
+                                <StackPanel Grid.Column="2" Spacing="5" VerticalAlignment="Center">
+                                    <Button Content="语音"
+                                            Classes="robot-list-action"
+                                            Background="#2563EB"
+                                            Foreground="White"
+                                            ToolTip.Tip="开始或停止 AdminChat 语音输入"
+                                            Click="VoiceButton_OnClick"/>
+                                    <Button Content="打开"
+                                            Classes="robot-list-action"
+                                            Background="#0F766E"
+                                            Foreground="White"
+                                            ToolTip.Tip="打开此工作区"
+                                            Click="OpenButton_OnClick"/>
+                                    <Button Content="{Binding Workspace.Robot.AgentPortalActionText}"
+                                            Classes="robot-list-action"
+                                            Background="#6D28D9"
+                                            Foreground="White"
+                                            IsEnabled="{Binding Workspace.Robot.IsAgentPortalAvailable}"
+                                            ToolTip.Tip="{Binding Workspace.Robot.AgentPortalStatusText}"
+                                            Click="AgentPortalButton_OnClick"/>
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+        </Grid>
+    </Border>
+</Window>

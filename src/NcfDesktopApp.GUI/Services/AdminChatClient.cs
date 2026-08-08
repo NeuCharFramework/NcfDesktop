@@ -28,6 +28,10 @@ public sealed class AdminChatClient
     private const string AdminUserApi = "/api/Senparc.Areas.Admin/AdminUserInfoAppService/Areas.Admin_AdminUserInfoAppService";
     private const string AdminChatApi = "/api/Senparc.Areas.Admin/AdminChatAppService/Areas.Admin_AdminChatAppService";
     private const string AdminChatStreamApi = "/api/Senparc.Areas.Admin/AdminChatStream/send";
+    private const string NeuBellStateApi = "/api/Senparc.Areas.Admin/neubell/state";
+    private const string NeuBellEventsApi = "/api/Senparc.Areas.Admin/neubell/events";
+    private const string AgentGraphSnapshotApi =
+        "/api/Senparc.Xncf.AgentsManager/ChatGroupAppService/Xncf.AgentsManager_ChatGroupAppService.GetAgentGraphSnapshot";
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         PropertyNameCaseInsensitive = true
@@ -118,6 +122,180 @@ public sealed class AdminChatClient
     public void ClearAuthentication()
     {
         _authentication = null;
+    }
+
+    /// <summary>
+    /// 使用仅驻留内存的 Admin JWT 读取 AgentsManager 页面同源聚合快照。
+    /// 响应模型刻意忽略 PromptCode、头像等门户绘制不需要的数据。
+    /// </summary>
+    public Task<AgentGraphSnapshot> GetAgentGraphSnapshotAsync(
+        string siteUrl,
+        CancellationToken cancellationToken = default)
+    {
+        return SendAsync<AgentGraphSnapshot>(
+            siteUrl,
+            HttpMethod.Get,
+            AgentGraphSnapshotApi,
+            body: null,
+            accessToken: GetRequiredAccessToken(),
+            timeout: TimeSpan.FromSeconds(12),
+            cancellationToken: cancellationToken);
+    }
+
+    /// <summary>
+    /// 使用内存中的 Admin JWT 读取同源纽铃快照。该 Controller 在不同 NCF Host 中可能返回
+    /// 直接 JSON 或标准 AppResponse 包装，因此客户端同时兼容两种安全响应形态。
+    /// </summary>
+    public async Task<NeuBellState> GetNeuBellStateAsync(
+        string siteUrl,
+        CancellationToken cancellationToken = default)
+    {
+        if (!SiteEndpointPolicy.TryCreateEndpoint(siteUrl, NeuBellStateApi, out var endpoint, out var endpointError))
+        {
+            throw new AdminChatApiException(endpointError);
+        }
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, endpoint);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", GetRequiredAccessToken());
+        request.Headers.CacheControl = new CacheControlHeaderValue { NoCache = true };
+        using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeoutSource.CancelAfter(TimeSpan.FromSeconds(12));
+
+        HttpResponseMessage response;
+        try
+        {
+            response = await _httpClient
+                .SendAsync(request, HttpCompletionOption.ResponseContentRead, timeoutSource.Token)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new AdminChatApiException("纽铃状态请求超时，请稍后重试。");
+        }
+        catch (Exception ex) when (ex is HttpRequestException or IOException)
+        {
+            throw new AdminChatApiException($"无法连接纽铃服务：{ex.Message}");
+        }
+
+        using (response)
+        {
+            EnsureAuthorizedResponse(response);
+            if (!response.IsSuccessStatusCode)
+            {
+                throw new AdminChatApiException($"纽铃服务返回 HTTP {(int)response.StatusCode}。");
+            }
+
+            try
+            {
+                var json = await response.Content.ReadAsStringAsync(timeoutSource.Token).ConfigureAwait(false);
+                using var document = JsonDocument.Parse(json);
+                var root = document.RootElement;
+                if (root.TryGetProperty("success", out var successElement) &&
+                    successElement.ValueKind == JsonValueKind.False)
+                {
+                    var errorMessage = root.TryGetProperty("errorMessage", out var errorElement)
+                        ? errorElement.GetString()
+                        : null;
+                    throw new AdminChatApiException(errorMessage ?? "纽铃状态读取失败。");
+                }
+
+                var payload = root.TryGetProperty("data", out var dataElement) &&
+                              dataElement.ValueKind == JsonValueKind.Object
+                    ? dataElement
+                    : root;
+                return payload.Deserialize<NeuBellState>(JsonOptions)
+                       ?? throw new AdminChatApiException("纽铃服务没有返回有效状态。");
+            }
+            catch (AdminChatApiException)
+            {
+                throw;
+            }
+            catch (JsonException)
+            {
+                throw new AdminChatApiException("纽铃服务返回了无法识别的数据。");
+            }
+        }
+    }
+
+    /// <summary>
+    /// 等待一次纽铃 SSE 变更。返回 false 表示当前没有可用 Provider 或连接自然结束；调用方以
+    /// 低频轮询兜底。Bearer JWT 仅放在请求头中，不进入 URL、Cookie 或磁盘。
+    /// </summary>
+    public async Task<bool> WaitForNeuBellChangeAsync(
+        string siteUrl,
+        CancellationToken cancellationToken = default)
+    {
+        if (!SiteEndpointPolicy.TryCreateEndpoint(siteUrl, NeuBellEventsApi, out var endpoint, out var endpointError))
+        {
+            throw new AdminChatApiException(endpointError);
+        }
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, endpoint);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", GetRequiredAccessToken());
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/event-stream"));
+
+        HttpResponseMessage response;
+        try
+        {
+            response = await _httpClient
+                .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or IOException)
+        {
+            throw new AdminChatApiException($"纽铃实时连接失败：{ex.Message}");
+        }
+
+        using (response)
+        {
+            EnsureAuthorizedResponse(response);
+            if (response.StatusCode == HttpStatusCode.NoContent)
+            {
+                return false;
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                throw new AdminChatApiException($"纽铃实时服务返回 HTTP {(int)response.StatusCode}。");
+            }
+
+            await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+            using var reader = new StreamReader(stream, Encoding.UTF8);
+            string? eventName = null;
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                var line = await reader.ReadLineAsync(cancellationToken).ConfigureAwait(false);
+                if (line == null)
+                {
+                    return false;
+                }
+
+                if (line.StartsWith("event:", StringComparison.OrdinalIgnoreCase))
+                {
+                    eventName = line[6..].Trim();
+                }
+                else if (line.StartsWith("data:", StringComparison.OrdinalIgnoreCase) &&
+                         string.Equals(eventName, "neubell-changed", StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+                else if (line.Length == 0)
+                {
+                    if (string.Equals(eventName, "neubell-changed", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return true;
+                    }
+
+                    eventName = null;
+                }
+            }
+
+            return false;
+        }
     }
 
     public Task<IReadOnlyList<AdminChatSessionSummary>> GetSessionsAsync(
@@ -629,6 +807,17 @@ public sealed class AdminChatClient
         }
 
         return _authentication.AccessToken;
+    }
+
+    private void EnsureAuthorizedResponse(HttpResponseMessage response)
+    {
+        if (response.StatusCode is not (HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden))
+        {
+            return;
+        }
+
+        ClearAuthentication();
+        throw new AdminChatApiException("管理员身份无效、已过期或不具备 AdminOnly 权限。", true);
     }
 
     internal static bool TryCreateEndpoint(string siteUrl, string relativePath, out Uri endpoint)

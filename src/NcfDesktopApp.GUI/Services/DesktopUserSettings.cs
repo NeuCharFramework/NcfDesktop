@@ -138,6 +138,12 @@ public sealed class DesktopUserSettings
     public bool DesktopRobotWheelZoomEnabled { get; set; }
 
     /// <summary>
+    /// 多个工作区宠物保持独立浮动，或收纳到一个统一标签列表。
+    /// </summary>
+    public DesktopRobotLayoutMode DesktopRobotLayoutMode { get; set; } =
+        DesktopRobotLayoutMode.FreeFloating;
+
+    /// <summary>
     /// 桌面宠物当前缩放倍率。1.0 为产品默认大小，也是允许的下限。
     /// </summary>
     public double DesktopRobotScale { get; set; } = DesktopRobotPlacementPolicy.MinimumScale;

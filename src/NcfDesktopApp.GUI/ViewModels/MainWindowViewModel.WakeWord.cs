@@ -9,6 +9,9 @@
     修改标识：Senparc - 20260804
     修改描述：v0.6.0 管理固定唤醒词设置与监听生命周期
 
+    修改标识：Senparc - 20260807
+    修改描述：移除性能排查期间遗留的全局停用门闩，恢复固定唤醒词监听
+
 ----------------------------------------------------------------*/
 
 using System;
@@ -24,10 +27,6 @@ namespace NcfDesktopApp.GUI.ViewModels;
 
 public partial class MainWindowViewModel
 {
-    // 性能问题排查阶段：暂停所有常驻唤醒监听，但保留用户原来的设置值，
-    // 后续恢复功能时不会丢失用户选择。
-    private static readonly bool WakeWordTemporarilyDisabled = true;
-
     private readonly ILocalWakeWordService _wakeWordService = LocalWakeWordService.Shared;
     private readonly SemaphoreSlim _wakeWordLifecycleGate = new(1, 1);
     private CancellationTokenSource? _wakeWordModelDownloadCts;
@@ -61,8 +60,6 @@ public partial class MainWindowViewModel
 
     public string WakePhraseText =>
         $"“{WakeWordModelCatalog.WakePhraseDisplay}”（读作“{WakeWordModelCatalog.WakePhrasePronunciation}”）";
-
-    public bool IsWakeWordControlEnabled => !WakeWordTemporarilyDisabled;
 
     public string WakeWordStatusColor => IsWakeWordListening
         ? "#16A34A"
@@ -234,13 +231,6 @@ public partial class MainWindowViewModel
             return;
         }
 
-        if (WakeWordTemporarilyDisabled)
-        {
-            IsWakeWordListening = false;
-            WakeWordStatusText = "性能排查中：固定唤醒监听已临时停用，不会占用麦克风或运行后台识别。";
-            return;
-        }
-
         if (Dispatcher.UIThread.CheckAccess())
         {
             _ = RefreshWakeWordListeningAsync();
@@ -275,7 +265,7 @@ public partial class MainWindowViewModel
         try
         {
             var shouldListen = WakeWordListeningPolicy.ShouldListen(
-                !WakeWordTemporarilyDisabled && WakeWordEnabled,
+                WakeWordEnabled,
                 IsWakeWordModelReady,
                 IsVoiceModelReady,
                 IsAdminChatActive,
@@ -326,11 +316,6 @@ public partial class MainWindowViewModel
 
     private string GetWakeWordIdleStatus()
     {
-        if (WakeWordTemporarilyDisabled)
-        {
-            return "性能排查中：固定唤醒监听已临时停用，不会占用麦克风或运行后台识别。";
-        }
-
         if (!WakeWordEnabled)
         {
             return "固定唤醒词已关闭，麦克风不会为唤醒功能常驻。";
