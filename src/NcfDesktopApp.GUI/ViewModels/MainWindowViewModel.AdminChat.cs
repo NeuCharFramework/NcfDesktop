@@ -58,6 +58,7 @@ public partial class MainWindowViewModel
 
     private DesktopBridgeCapabilities? _desktopBridgeCapabilities;
     private readonly SemaphoreSlim _adminChatRefreshLock = new(1, 1);
+    private int _adminChatSessionRefreshInProgress;
     private int _optimisticMessageId;
     private int _activeStreamingAssistantId;
     private readonly object _streamingChunkLock = new();
@@ -179,7 +180,10 @@ public partial class MainWindowViewModel
 
         // 删除/刷新期间由显式流程负责读取会话详情。这里不再启动一个无法取消的
         // 后台读取，避免删除后的旧 session detail 响应覆盖新状态。
-        if (value != null && IsAdminChatActive && Volatile.Read(ref _adminChatSessionMutationInProgress) == 0)
+        if (value != null &&
+            IsAdminChatActive &&
+            Volatile.Read(ref _adminChatSessionMutationInProgress) == 0 &&
+            Volatile.Read(ref _adminChatSessionRefreshInProgress) == 0)
         {
             _ = LoadAdminChatSessionAsync(value.Id);
         }
@@ -915,44 +919,52 @@ public partial class MainWindowViewModel
             return;
         }
 
-        await _adminChatRefreshLock.WaitAsync();
+        Interlocked.Increment(ref _adminChatSessionRefreshInProgress);
         try
         {
-            var selectedId = preferredSessionId ?? SelectedAdminChatSession?.Id;
-            var sessions = await _adminChatClient.GetSessionsAsync(
-                SiteUrl,
-                _cancellationTokenSource?.Token ?? CancellationToken.None);
-
-            AdminChatSessionSummary? selected = null;
-            await Dispatcher.UIThread.InvokeAsync(() =>
+            await _adminChatRefreshLock.WaitAsync();
+            try
             {
-                AdminChatSessions.Clear();
-                foreach (var session in sessions)
-                {
-                    AdminChatSessions.Add(session);
-                }
+                var selectedId = preferredSessionId ?? SelectedAdminChatSession?.Id;
+                var sessions = await _adminChatClient.GetSessionsAsync(
+                    SiteUrl,
+                    _cancellationTokenSource?.Token ?? CancellationToken.None);
 
-                selected = AdminChatSessions.FirstOrDefault(item => item.Id == selectedId) ??
-                           AdminChatSessions.FirstOrDefault();
-                SelectedAdminChatSession = selected;
-            });
-
-            if (loadSelectedMessages && selected != null)
-            {
-                await LoadAdminChatSessionCoreAsync(selected.Id);
-            }
-            else if (selected == null)
-            {
+                AdminChatSessionSummary? selected = null;
                 await Dispatcher.UIThread.InvokeAsync(() =>
                 {
-                    AdminChatMessages.Clear();
-                    SetAssociatedAdminChatModules(Array.Empty<AdminChatSessionModule>());
+                    AdminChatSessions.Clear();
+                    foreach (var session in sessions)
+                    {
+                        AdminChatSessions.Add(session);
+                    }
+
+                    selected = AdminChatSessions.FirstOrDefault(item => item.Id == selectedId) ??
+                               AdminChatSessions.FirstOrDefault();
+                    SelectedAdminChatSession = selected;
                 });
+
+                if (loadSelectedMessages && selected != null)
+                {
+                    await LoadAdminChatSessionCoreAsync(selected.Id);
+                }
+                else if (selected == null)
+                {
+                    await Dispatcher.UIThread.InvokeAsync(() =>
+                    {
+                        AdminChatMessages.Clear();
+                        SetAssociatedAdminChatModules(Array.Empty<AdminChatSessionModule>());
+                    });
+                }
+            }
+            finally
+            {
+                _adminChatRefreshLock.Release();
             }
         }
         finally
         {
-            _adminChatRefreshLock.Release();
+            Interlocked.Decrement(ref _adminChatSessionRefreshInProgress);
         }
     }
 
@@ -966,6 +978,16 @@ public partial class MainWindowViewModel
         catch (AdminChatApiException ex)
         {
             HandleAdminChatApiFailure(ex);
+        }
+        catch (OperationCanceledException)
+        {
+            // 工作台关闭或站点停止时的正常取消。
+        }
+        catch (Exception ex)
+        {
+            AdminChatStatusText = $"会话刷新失败：{ex.Message}";
+            AddLog($"⚠️ AdminChat 会话刷新失败: {ex.Message}");
+            CrashDiagnosticService.ReportHandledException("AdminChat 会话刷新", ex);
         }
         finally
         {
@@ -1038,7 +1060,12 @@ public partial class MainWindowViewModel
             return;
         }
 
-        Dispatcher.UIThread.Post(async () =>
+        Dispatcher.UIThread.Post(() => _ = HandleAuthorizedSyncReceivedAsync(message));
+    }
+
+    private async Task HandleAuthorizedSyncReceivedAsync(DesktopAuthorizedSyncMessage message)
+    {
+        try
         {
             if (!IsAdminChatActive ||
                 Volatile.Read(ref _adminChatSessionMutationInProgress) != 0)
@@ -1046,24 +1073,47 @@ public partial class MainWindowViewModel
                 return;
             }
 
-            try
-            {
-                var sessionId = int.TryParse(message.ResourceId, out var parsed) ? parsed : (int?)null;
-                await RefreshAdminChatSessionsAsync(
-                    loadSelectedMessages: sessionId == SelectedAdminChatSession?.Id,
-                    preferredSessionId: SelectedAdminChatSession?.Id);
-                AdminChatStatusText = "已收到 EventBus 同步通知。";
-            }
-            catch (AdminChatApiException ex)
-            {
-                HandleAdminChatApiFailure(ex);
-            }
-        });
+            var sessionId = int.TryParse(message.ResourceId, out var parsed) ? parsed : (int?)null;
+            await RefreshAdminChatSessionsAsync(
+                loadSelectedMessages: sessionId == SelectedAdminChatSession?.Id,
+                preferredSessionId: SelectedAdminChatSession?.Id);
+            AdminChatStatusText = "已收到 EventBus 同步通知。";
+        }
+        catch (AdminChatApiException ex)
+        {
+            HandleAdminChatApiFailure(ex);
+        }
+        catch (OperationCanceledException)
+        {
+            // 工作台关闭或站点停止时的正常取消。
+        }
+        catch (Exception ex)
+        {
+            AdminChatStatusText = $"实时同步刷新失败：{ex.Message}";
+            AddLog($"⚠️ AdminChat 实时同步刷新失败: {ex.Message}");
+            CrashDiagnosticService.ReportHandledException("AdminChat 实时同步刷新", ex);
+        }
     }
 
     private void OnDesktopAuthorizedSyncAuthorizationFailed(string message, string accessToken)
     {
-        Dispatcher.UIThread.Post(async () =>
+        try
+        {
+            // 授权同步是附加能力。0.9.0 曾在这个 SSE 回调中停止流并再次请求会话列表，
+            // 恰好与刚完成登录时的会话加载、选择项变更并发，macOS 上可能导致主窗口
+            // 生命周期被异常打断。同步流已经在通知后自行结束，因此这里只做安全降级，
+            // 不再从回调中发起网络请求、停止流或改变已验证的 AdminChat 登录状态。
+            Dispatcher.UIThread.Post(() => HandleAuthorizedSyncAuthorizationFailure(message, accessToken));
+        }
+        catch (Exception ex)
+        {
+            CrashDiagnosticService.ReportHandledException("投递 AdminChat 实时同步授权失败状态", ex);
+        }
+    }
+
+    private void HandleAuthorizedSyncAuthorizationFailure(string message, string accessToken)
+    {
+        try
         {
             // StartAuthorizedSyncAsync 会替换旧的 SSE 连接。旧连接可能在取消后才把
             // 401/403 通知送达；它不能注销已经使用新 JWT 完成的登录。
@@ -1074,52 +1124,14 @@ public partial class MainWindowViewModel
                 return;
             }
 
-            await _desktopBridgeClient.StopAuthorizedSyncAsync();
-
-            // SSE 授权失败并不一定代表 AdminChat JWT 失效（例如旧 DesktopBridge、
-            // 代理短暂拒绝或同步端点不兼容）。只有业务 API 也确认 401/403 时才退回登录。
-            try
-            {
-                await _adminChatClient.GetSessionsAsync(
-                    SiteUrl,
-                    _cancellationTokenSource?.Token ?? CancellationToken.None);
-                AdminChatStatusText = $"{message} AdminChat 登录仍有效，已保留当前会话。";
-                AddLog($"⚠️ {message}；AdminChat API 验证仍成功，未清除登录状态。");
-                return;
-            }
-            catch (AdminChatApiException ex) when (!ex.IsAuthenticationFailure)
-            {
-                AdminChatStatusText = $"{message} AdminChat 仍可用，但实时同步暂时不可用。";
-                AddLog($"⚠️ {message}；AdminChat API 可用但同步暂时中断: {ex.Message}");
-                return;
-            }
-            catch (AdminChatApiException)
-            {
-                // 业务 API 明确返回 401/403，继续执行下面的安全注销。
-            }
-            catch (OperationCanceledException)
-            {
-                // 站点正在停止或工作区正在关闭，不改变当前界面状态。
-                return;
-            }
-            catch (Exception ex)
-            {
-                AdminChatStatusText = $"{message} AdminChat 仍保持登录，但同步验证暂时失败。";
-                AddLog($"⚠️ {message}；验证当前登录状态时发生异常: {ex.Message}");
-                return;
-            }
-
-            StopAgentPortalSynchronization();
-            StopNeuBellSynchronization();
-            _adminChatClient.ClearAuthentication();
-            IsAdminAuthenticated = false;
-            AdminChatSessions.Clear();
-            AdminChatMessages.Clear();
-            ResetAdminChatOptions();
-            SelectedAdminChatSession = null;
-            AdminChatStatusText = message;
-            OnPropertyChanged(nameof(AdminChatAccountText));
-        });
+            AdminChatStatusText = $"{message} AdminChat 当前登录已保留；实时同步已暂停。";
+            AddLog($"⚠️ {message}；为避免影响已完成的登录，实时同步已安全降级。业务 API 后续若返回 401/403，才会回到登录界面。");
+        }
+        catch (Exception ex)
+        {
+            // 状态提示本身也不能影响主窗口生命周期。
+            CrashDiagnosticService.ReportHandledException("更新 AdminChat 实时同步授权失败状态", ex);
+        }
     }
 
     private void HandleAdminChatApiFailure(AdminChatApiException ex)

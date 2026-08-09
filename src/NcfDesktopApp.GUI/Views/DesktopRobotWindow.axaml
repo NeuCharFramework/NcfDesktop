@@ -142,6 +142,31 @@
             </Grid>
         </Border>
 
+        <!-- Agents 门户独立于宠物图层：退出时门户可在底层缩回，同时立即露出宠物。 -->
+        <controls:AgentPortalView x:Name="AgentPortalSurface"
+                                  ZIndex="15"
+                                  IsOpen="{Binding IsAgentPortalOpen}"
+                                  Nodes="{Binding AgentPortalNodes}"
+                                  IsHitTestVisible="False"/>
+
+        <Button x:Name="PortalReturnButton"
+                IsVisible="False"
+                ZIndex="60"
+                Width="84"
+                Height="34"
+                Padding="10,4"
+                Background="#6D28D9"
+                Foreground="White"
+                CornerRadius="17"
+                FontSize="11"
+                FontWeight="SemiBold"
+                HorizontalContentAlignment="Center"
+                VerticalContentAlignment="Center"
+                Content="{Binding AgentPortalActionText}"
+                ToolTip.Tip="{Binding AgentPortalStatusText}"
+                PointerPressed="PortalReturnButton_OnPointerPressed"
+                Click="PortalReturnButton_OnClick"/>
+
         <!-- 宠物与信息卡之间的透明悬停桥，避免移动鼠标时卡片提前收起。 -->
         <Border x:Name="HoverBridge"
                 IsVisible="False"
@@ -193,6 +218,7 @@
               ZIndex="20"
               Width="112"
               Height="112"
+              IsVisible="{Binding IsMascotVisible}"
               RenderTransformOrigin="0%,0%"
               PointerPressed="RootBorder_OnPointerPressed"
               PointerWheelChanged="MascotSurface_OnPointerWheelChanged"
@@ -225,12 +251,6 @@
                                         Height="61"
                                         ToolTip.Tip="{Binding MascotName}"/>
             </Border>
-            <controls:AgentPortalView Width="112"
-                                      Height="112"
-                                      IsOpen="{Binding IsAgentPortalOpen}"
-                                      Nodes="{Binding AgentPortalNodes}"
-                                      HorizontalAlignment="Center"
-                                      VerticalAlignment="Center"/>
             <Button ZIndex="60"
                     Width="30"
                     Height="30"

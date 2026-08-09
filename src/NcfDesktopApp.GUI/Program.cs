@@ -26,6 +26,7 @@ sealed class Program
         }
         catch (Exception ex)
         {
+            Services.CrashDiagnosticService.ReportHandledException("Program.Main", ex);
             Console.WriteLine("\n❌ FATAL ERROR:");
             Console.WriteLine($"   Type: {ex.GetType().Name}");
             Console.WriteLine($"   Message: {ex.Message}");

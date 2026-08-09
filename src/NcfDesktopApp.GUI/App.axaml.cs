@@ -60,9 +60,17 @@ public partial class App : Application
             desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
             desktop.Exit += (_, _) =>
             {
-                LocalWakeWordService.DisposeShared();
-                LocalVoiceInputService.DisposeShared();
-                LocalTextToSpeechService.DisposeShared();
+                CrashDiagnosticService.ReportLifecycle("ClassicDesktop lifetime Exit event received.");
+                try
+                {
+                    LocalWakeWordService.DisposeShared();
+                    LocalVoiceInputService.DisposeShared();
+                    LocalTextToSpeechService.DisposeShared();
+                }
+                catch (Exception ex)
+                {
+                    CrashDiagnosticService.ReportHandledException("退出时释放共享语音服务", ex);
+                }
             };
 
             DisableAvaloniaDataAnnotationValidation();
@@ -78,7 +86,11 @@ public partial class App : Application
             };
             _shell.CreateWorkspaceRequested = () => CreateWorkspace(_mainWindow, select: true);
             _mainWindow.Opened += (_, _) => ActivateWorkspaceResourcesAfterMainWindowOpened();
-            _mainWindow.Closed += (_, _) => _ = HandleMainWindowClosedAsync(desktop);
+            _mainWindow.Closed += (_, _) =>
+            {
+                CrashDiagnosticService.ReportLifecycle("MainWindow Closed event received; beginning application shutdown.");
+                _ = HandleMainWindowClosedAsync(desktop);
+            };
 
             desktop.MainWindow = _mainWindow;
             CreateWorkspace(_mainWindow, select: true);
@@ -391,6 +403,8 @@ public partial class App : Application
         {
             return;
         }
+
+        CrashDiagnosticService.ReportLifecycle("Application shutdown cleanup started after MainWindow Closed.");
 
         try
         {

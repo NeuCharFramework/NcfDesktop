@@ -153,9 +153,22 @@ public partial class MainWindow : Window
 
     private async void OnMainWindowClosing(object? sender, WindowClosingEventArgs e)
     {
+        CrashDiagnosticService.ReportLifecycle(
+            $"MainWindow Closing event received. reason={e.CloseReason}, programmatic={e.IsProgrammatic}, " +
+            $"allowClose={_allowCloseWithoutNcfConfirm}, preparing={_closePreparationInProgress}.");
+
         if (_allowCloseWithoutNcfConfirm)
         {
             return;
+        }
+
+        // macOS 的权限面板或原生子窗口切换期间，曾出现没有用户明确退出动作但主窗口
+        // 收到 WindowClosing 的情况。主窗口一旦关闭，App 会按生命周期清理全部工作区和
+        // 宠物，表面上就是“登录后闪退”。对于普通窗口关闭请求一律先取消，再走明确
+        // 确认流程；系统关机和应用级 Shutdown 不拦截。
+        if (e.CloseReason is WindowCloseReason.WindowClosing or WindowCloseReason.Undefined)
+        {
+            e.Cancel = true;
         }
 
         if (DataContext is not WorkspaceShellViewModel shell)
@@ -163,16 +176,24 @@ public partial class MainWindow : Window
             return;
         }
 
-        var runningWorkspaces = shell.Workspaces
-            .Where(workspace => workspace.Workspace.IsNcfRunning)
-            .ToArray();
-        if (runningWorkspaces.Length == 0)
+        if (!e.Cancel)
+        {
+            // ApplicationShutdown / OSShutdown 由 Avalonia 或操作系统负责，不应阻塞。
+            return;
+        }
+
+        if (_closePreparationInProgress)
         {
             return;
         }
 
-        e.Cancel = true;
-        if (_closePreparationInProgress)
+        var runningWorkspaces = shell.Workspaces
+            .Where(workspace => workspace.Workspace.IsNcfRunning)
+            .ToArray();
+        var confirmationWorkspace = shell.SelectedWorkspace ??
+                                    runningWorkspaces.FirstOrDefault() ??
+                                    shell.Workspaces.FirstOrDefault();
+        if (confirmationWorkspace == null)
         {
             return;
         }
@@ -181,14 +202,16 @@ public partial class MainWindow : Window
 
         try
         {
-            var confirmationWorkspace = shell.SelectedWorkspace ?? runningWorkspaces[0];
             if (!await confirmationWorkspace.Workspace
                     .ConfirmCloseAsync(
                         "关闭 NCF Desktop",
-                        $"当前有 {runningWorkspaces.Length} 个 NCF 工作区正在运行。\n关闭主窗口将停止这些 NCF 进程和对应宠物。\n是否继续？",
-                        "全部停止并关闭")
+                        runningWorkspaces.Length > 0
+                            ? $"当前有 {runningWorkspaces.Length} 个 NCF 工作区正在运行。\n关闭主窗口将停止这些 NCF 进程和对应宠物。\n是否继续？"
+                            : "确认退出 NCF Desktop？\n此确认可防止 macOS 权限面板或原生窗口切换误关闭主窗口。",
+                        runningWorkspaces.Length > 0 ? "全部停止并关闭" : "退出 NCF Desktop")
                     .ConfigureAwait(true))
             {
+                CrashDiagnosticService.ReportLifecycle("MainWindow close request was cancelled by the user or intercepted as unexpected.");
                 return;
             }
 

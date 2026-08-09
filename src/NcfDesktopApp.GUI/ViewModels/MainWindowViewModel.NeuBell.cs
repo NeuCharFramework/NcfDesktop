@@ -91,7 +91,16 @@ public partial class MainWindowViewModel
             {
                 Robot.ClearNeuBellNotifications();
                 _neuBellTargetUri = null;
-                Dispatcher.UIThread.Post(() => HandleAdminChatApiFailure(ex));
+                Dispatcher.UIThread.Post(() =>
+                {
+                    if (!IsAdminAuthenticated)
+                    {
+                        return;
+                    }
+
+                    AdminChatStatusText = "纽铃服务未接受当前令牌，已暂停纽铃同步；AdminChat 登录保持可用。";
+                    AddLog($"ℹ️ 纽铃同步未获授权，未影响 AdminChat：{ex.Message}");
+                });
                 return;
             }
             catch (AdminChatApiException)

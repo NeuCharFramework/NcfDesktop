@@ -202,6 +202,32 @@ public sealed class DesktopUserSettingsTests
     }
 
     [TestMethod]
+    public void DesktopRobotWindow_AgentPortal_Uses68PercentOfWorkingHeightAndKeepsItsCircleInteractive()
+    {
+        var diameter = DesktopRobotWindow.CalculateAgentPortalDiameter(1920, 1080);
+        var layout = DesktopRobotWindow.CalculateLayout(
+            scale: 1,
+            isCardExpanded: false,
+            compactStatusWidth: 64);
+        var regions = DesktopRobotWindow.CalculateHitRegions(
+            layout,
+            isCardExpanded: false,
+            agentPortalDiameter: diameter);
+
+        Assert.AreEqual(1080 * .68, diameter, .001);
+        Assert.IsTrue(regions.Any(region => region.Contains(new Avalonia.Point(375, 375))));
+        Assert.IsFalse(regions.Any(region => region.Contains(new Avalonia.Point(750, 8))));
+    }
+
+    [TestMethod]
+    public void DesktopRobotWindow_AgentPortal_ConformsToNarrowWorkingArea()
+    {
+        var diameter = DesktopRobotWindow.CalculateAgentPortalDiameter(300, 1080);
+
+        Assert.AreEqual(284, diameter, .001);
+    }
+
+    [TestMethod]
     public void DesktopRobotWindow_FreeFloatingMode_OffsetsAdditionalPetsWithinWorkingArea()
     {
         var workingArea = new Avalonia.PixelRect(0, 0, 1920, 1080);

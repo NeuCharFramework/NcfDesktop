@@ -33,6 +33,10 @@ public partial class MainWindowViewModel
     private bool _wakeWordHandlingDetection;
     private bool _voiceInputStarting;
     private bool _workspaceAudioDisposed;
+    // macOS 的 TCC 麦克风授权回调与 MiniAudio 初始化存在平台时序差异。
+    // 已保存的“开启”状态不能在登录瞬间再次触发原生权限流程；本次运行中由
+    // 用户实际切换一次开关后才允许自动监听。Windows/Linux 保持原有行为。
+    private bool _wakeWordExplicitlyToggledThisSession;
 
     [ObservableProperty]
     private bool _wakeWordEnabled;
@@ -71,6 +75,11 @@ public partial class MainWindowViewModel
 
     partial void OnWakeWordEnabledChanged(bool value)
     {
+        if (!_suppressDesktopSettingsSave)
+        {
+            _wakeWordExplicitlyToggledThisSession = true;
+        }
+
         if (!value)
         {
             _wakeWordModelDownloadCts?.Cancel();
@@ -233,13 +242,52 @@ public partial class MainWindowViewModel
             return;
         }
 
+        if (OperatingSystem.IsMacOS() &&
+            WakeWordEnabled &&
+            !_wakeWordExplicitlyToggledThisSession)
+        {
+            IsWakeWordListening = false;
+            WakeWordStatusText =
+                "macOS 已保留固定唤醒词设置；为避免登录时触发麦克风授权导致主窗口退出，请在本次运行中关闭后再开启一次。";
+            return;
+        }
+
         if (Dispatcher.UIThread.CheckAccess())
         {
-            _ = RefreshWakeWordListeningAsync();
+            StartWakeWordListeningRefresh();
         }
         else
         {
-            Dispatcher.UIThread.Post(() => _ = RefreshWakeWordListeningAsync());
+            Dispatcher.UIThread.Post(StartWakeWordListeningRefresh);
+        }
+    }
+
+    /// <summary>
+    /// 启动唤醒监听刷新但不把任何生命周期/原生音频异常泄漏到 UI dispatcher。
+    /// 设备权限变化时，SoundFlow 可能在创建 capture device 或释放设备期间抛出
+    /// ObjectDisposedException；这类故障只应停用唤醒监听，不能结束 AdminChat。
+    /// </summary>
+    private void StartWakeWordListeningRefresh()
+    {
+        _ = RefreshWakeWordListeningSafelyAsync();
+    }
+
+    private async Task RefreshWakeWordListeningSafelyAsync()
+    {
+        try
+        {
+            await RefreshWakeWordListeningAsync().ConfigureAwait(true);
+        }
+        catch (OperationCanceledException)
+        {
+            // 工作台关闭或音频操作切换时的正常取消。
+        }
+        catch (Exception ex)
+        {
+            IsWakeWordListening = false;
+            WakeWordStatusText = $"唤醒监听已安全停止：{ex.Message}";
+            AddLog($"⚠️ 唤醒监听已安全停止: {ex.Message}");
+            CrashDiagnosticService.ReportHandledException("唤醒监听生命周期", ex);
         }
     }
 
@@ -383,7 +431,23 @@ public partial class MainWindowViewModel
             return;
         }
 
-        Dispatcher.UIThread.Post(() => _ = HandleWakeWordDetectedAsync(detected));
+        Dispatcher.UIThread.Post(() => _ = HandleWakeWordDetectedSafelyAsync(detected));
+    }
+
+    private async Task HandleWakeWordDetectedSafelyAsync(WakeWordDetectedEvent detected)
+    {
+        try
+        {
+            await HandleWakeWordDetectedAsync(detected).ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            _wakeWordHandlingDetection = false;
+            IsWakeWordListening = false;
+            WakeWordStatusText = $"唤醒操作已安全停止：{ex.Message}";
+            AddLog($"⚠️ 唤醒操作未完成: {ex.Message}");
+            CrashDiagnosticService.ReportHandledException("处理唤醒词", ex);
+        }
     }
 
     private async Task HandleWakeWordDetectedAsync(WakeWordDetectedEvent detected)
@@ -418,7 +482,22 @@ public partial class MainWindowViewModel
             return;
         }
 
-        Dispatcher.UIThread.Post(() => _ = HandleWakeWordListeningFailureAsync(failure.Exception));
+        Dispatcher.UIThread.Post(() => _ = HandleWakeWordListeningFailureSafelyAsync(failure.Exception));
+    }
+
+    private async Task HandleWakeWordListeningFailureSafelyAsync(Exception exception)
+    {
+        try
+        {
+            await HandleWakeWordListeningFailureAsync(exception).ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            IsWakeWordListening = false;
+            WakeWordStatusText = $"唤醒监听已停止：{exception.Message}";
+            AddLog($"❌ 唤醒监听失败: {exception.Message}");
+            CrashDiagnosticService.ReportHandledException("处理唤醒监听失败", ex);
+        }
     }
 
     private async Task HandleWakeWordListeningFailureAsync(Exception exception)

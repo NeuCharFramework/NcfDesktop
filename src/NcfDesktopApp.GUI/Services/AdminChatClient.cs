@@ -139,7 +139,8 @@ public sealed class AdminChatClient
             body: null,
             accessToken: GetRequiredAccessToken(),
             timeout: TimeSpan.FromSeconds(12),
-            cancellationToken: cancellationToken);
+            cancellationToken: cancellationToken,
+            clearAuthenticationOnAuthorizationFailure: false);
     }
 
     /// <summary>
@@ -179,7 +180,7 @@ public sealed class AdminChatClient
 
         using (response)
         {
-            EnsureAuthorizedResponse(response);
+            EnsureAuthorizedResponse(response, clearAuthenticationOnAuthorizationFailure: false);
             if (!response.IsSuccessStatusCode)
             {
                 throw new AdminChatApiException($"纽铃服务返回 HTTP {(int)response.StatusCode}。");
@@ -252,7 +253,7 @@ public sealed class AdminChatClient
 
         using (response)
         {
-            EnsureAuthorizedResponse(response);
+            EnsureAuthorizedResponse(response, clearAuthenticationOnAuthorizationFailure: false);
             if (response.StatusCode == HttpStatusCode.NoContent)
             {
                 return false;
@@ -729,7 +730,8 @@ public sealed class AdminChatClient
         object? body,
         string? accessToken,
         TimeSpan timeout,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool clearAuthenticationOnAuthorizationFailure = true)
     {
         if (!SiteEndpointPolicy.TryCreateEndpoint(siteUrl, relativePath, out var endpoint, out var endpointError))
         {
@@ -769,7 +771,11 @@ public sealed class AdminChatClient
         {
             if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
             {
-                ClearAuthentication();
+                if (clearAuthenticationOnAuthorizationFailure)
+                {
+                    ClearAuthentication();
+                }
+
                 throw new AdminChatApiException("管理员身份无效、已过期或不具备 AdminOnly 权限。", true);
             }
 
@@ -809,14 +815,20 @@ public sealed class AdminChatClient
         return _authentication.AccessToken;
     }
 
-    private void EnsureAuthorizedResponse(HttpResponseMessage response)
+    private void EnsureAuthorizedResponse(
+        HttpResponseMessage response,
+        bool clearAuthenticationOnAuthorizationFailure = true)
     {
         if (response.StatusCode is not (HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden))
         {
             return;
         }
 
-        ClearAuthentication();
+        if (clearAuthenticationOnAuthorizationFailure)
+        {
+            ClearAuthentication();
+        }
+
         throw new AdminChatApiException("管理员身份无效、已过期或不具备 AdminOnly 权限。", true);
     }
 

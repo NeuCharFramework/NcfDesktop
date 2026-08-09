@@ -363,6 +363,36 @@ public sealed class AdminChatClientTests
     }
 
     [TestMethod]
+    public async Task GetAgentGraphSnapshotAsync_WhenOptionalEndpointRejectsToken_PreservesAdminChatAuthentication()
+    {
+        var client = CreateClient(request =>
+        {
+            var path = request.RequestUri?.PathAndQuery ?? string.Empty;
+            if (path.Contains("AdminUserInfoAppService.LoginAsync", StringComparison.Ordinal))
+            {
+                return LoginResponse();
+            }
+
+            if (path.Contains("GetAgentGraphSnapshot", StringComparison.Ordinal))
+            {
+                return new HttpResponseMessage(HttpStatusCode.Forbidden);
+            }
+
+            return EmptySessionsResponse();
+        });
+        await client.AuthenticateAsync(SiteUrl, "admin", "secret");
+
+        var exception = await Assert.ThrowsExceptionAsync<AdminChatApiException>(
+            () => client.GetAgentGraphSnapshotAsync(SiteUrl));
+
+        Assert.IsTrue(exception.IsAuthenticationFailure);
+        Assert.IsTrue(client.IsAuthenticated);
+        Assert.IsNotNull(client.Authentication);
+        await client.GetSessionsAsync(SiteUrl);
+        Assert.IsTrue(client.IsAuthenticated);
+    }
+
+    [TestMethod]
     public async Task GetNeuBellStateAsync_UsesMemoryOnlyAdminToken_AndAcceptsDirectControllerJson()
     {
         string? neuBellAuthorization = null;
@@ -416,6 +446,36 @@ public sealed class AdminChatClientTests
         Assert.AreEqual("/api/Senparc.Areas.Admin/neubell/state", neuBellPath);
         Assert.AreEqual(2, state.Providers.Single().Items.Single().Count);
         Assert.AreEqual("warning", state.Providers.Single().Items.Single().Severity);
+    }
+
+    [TestMethod]
+    public async Task GetNeuBellStateAsync_WhenOptionalEndpointRejectsToken_PreservesAdminChatAuthentication()
+    {
+        var client = CreateClient(request =>
+        {
+            var path = request.RequestUri?.PathAndQuery ?? string.Empty;
+            if (path.Contains("AdminUserInfoAppService.LoginAsync", StringComparison.Ordinal))
+            {
+                return LoginResponse();
+            }
+
+            if (path.Contains("/neubell/state", StringComparison.Ordinal))
+            {
+                return new HttpResponseMessage(HttpStatusCode.Unauthorized);
+            }
+
+            return EmptySessionsResponse();
+        });
+        await client.AuthenticateAsync(SiteUrl, "admin", "secret");
+
+        var exception = await Assert.ThrowsExceptionAsync<AdminChatApiException>(
+            () => client.GetNeuBellStateAsync(SiteUrl));
+
+        Assert.IsTrue(exception.IsAuthenticationFailure);
+        Assert.IsTrue(client.IsAuthenticated);
+        Assert.IsNotNull(client.Authentication);
+        await client.GetSessionsAsync(SiteUrl);
+        Assert.IsTrue(client.IsAuthenticated);
     }
 
     [TestMethod]
