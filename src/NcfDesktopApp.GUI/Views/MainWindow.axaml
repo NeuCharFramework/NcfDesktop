@@ -1,6 +1,7 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:NcfDesktopApp.GUI.ViewModels"
+        xmlns:loc="using:NcfDesktopApp.GUI.Markup"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d"
@@ -80,7 +81,7 @@
                             <TextBlock Text="{Binding SidebarTitle}"
                                        FontSize="14"
                                        FontWeight="SemiBold"/>
-                            <TextBlock Text="统一管理运行实例"
+                            <TextBlock Text="{loc:Loc Shell.SidebarSubtitle}"
                                        FontSize="9.5"
                                        Foreground="{DynamicResource SecondaryTextBrush}"/>
                         </StackPanel>
@@ -91,7 +92,7 @@
                             Command="{Binding ToggleSidebarCommand}"
                             Classes="sidebar-icon"
                             FontSize="19"
-                            ToolTip.Tip="展开或收起工作区侧栏"/>
+                            ToolTip.Tip="{loc:Loc Shell.ToggleSidebarTip}"/>
                 </Grid>
 
                 <ListBox Grid.Row="1"
@@ -147,7 +148,7 @@
                                         IsVisible="{Binding IsSidebarExpanded}"
                                         Classes="sidebar-icon"
                                         VerticalAlignment="Center"
-                                        ToolTip.Tip="关闭此工作区"/>
+                                        ToolTip.Tip="{loc:Loc Shell.CloseWorkspaceTip}"/>
                             </Grid>
                         </DataTemplate>
                     </ListBox.ItemTemplate>
@@ -163,10 +164,10 @@
                         BorderBrush="#302563EB"
                         BorderThickness="1"
                         CornerRadius="8"
-                        ToolTip.Tip="新建 NCF 工作区标签">
+                        ToolTip.Tip="{loc:Loc Shell.NewWorkspaceTip}">
                     <StackPanel Orientation="Horizontal" Spacing="7">
                         <TextBlock Text="＋" FontSize="16" FontWeight="SemiBold"/>
-                        <TextBlock Text="新建工作区"
+                        <TextBlock Text="{loc:Loc Shell.NewWorkspace}"
                                    IsVisible="{Binding IsSidebarExpanded}"
                                    VerticalAlignment="Center"/>
                     </StackPanel>
@@ -186,14 +187,14 @@
                             Spacing="14"
                             IsVisible="{Binding HasNoWorkspaces}">
                     <Image Source="/Assets/NCF-logo.png" Width="64" Height="64" Opacity="0.75"/>
-                    <TextBlock Text="还没有打开的 NCF 工作区"
+                    <TextBlock Text="{loc:Loc Shell.EmptyTitle}"
                                FontSize="18"
                                FontWeight="SemiBold"
                                HorizontalAlignment="Center"/>
-                    <TextBlock Text="从左侧新建一个标签，NCF、浏览器和 Agent 会在其中独立运行。"
+                    <TextBlock Text="{loc:Loc Shell.EmptySubtitle}"
                                Foreground="{DynamicResource SecondaryTextBrush}"
                                HorizontalAlignment="Center"/>
-                    <Button Content="新建工作区"
+                    <Button Content="{loc:Loc Shell.NewWorkspace}"
                             Command="{Binding CreateWorkspaceCommand}"
                             HorizontalAlignment="Center"
                             Padding="18,9"

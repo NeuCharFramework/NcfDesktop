@@ -61,10 +61,10 @@ public partial class MainWindowViewModel : ViewModelBase
     public string DesktopAppCurrentVersion { get; } = DesktopUpdateService.GetCurrentVersion();
 
     [ObservableProperty]
-    private string _desktopAppLatestVersion = "尚未检查";
+    private string _desktopAppLatestVersion = LocalizationService.T("Common.NotChecked");
 
     [ObservableProperty]
-    private string _desktopAppUpdateStatus = "程序启动后会自动检查，并每小时从 NCF 官网检查一次。";
+    private string _desktopAppUpdateStatus = LocalizationService.T("Settings.UpdateStatusDefault");
 
     [ObservableProperty]
     private string _desktopAppUpdateStatusColor = "#6C757D";
@@ -73,19 +73,19 @@ public partial class MainWindowViewModel : ViewModelBase
     private bool _isDesktopAppUpdateChecking;
 
     [ObservableProperty]
-    private string _latestVersion = "检查中...";
+    private string _latestVersion = LocalizationService.T("Status.Checking");
 
     [ObservableProperty]
-    private string _currentStatus = "就绪";
+    private string _currentStatus = LocalizationService.T("Status.Ready");
 
     [ObservableProperty]
     private string _statusColor = "#28A745";
 
     [ObservableProperty]
-    private string _siteUrl = "未启动";
+    private string _siteUrl = LocalizationService.T("Status.NotStarted");
 
     [ObservableProperty]
-    private string _progressText = "准备开始...";
+    private string _progressText = LocalizationService.T("Status.PrepareStart");
 
     [ObservableProperty]
     private double _progressValue = 0;
@@ -156,10 +156,16 @@ public partial class MainWindowViewModel : ViewModelBase
     private string _templateWorkspaceConfigurationSourcePath = string.Empty;
 
     [ObservableProperty]
-    private string _templateCreationStatus = "使用 NuGet.org 最新 Senparc.NCF.Template 创建，不自动 restore。";
+    private string _templateCreationStatus = LocalizationService.T("Template.StatusDefault");
 
     [ObservableProperty]
     private string _aspNetCoreEnvironment = "Production";
+
+    [ObservableProperty]
+    private string _uiLanguage = LocalizationService.Chinese;
+
+    [ObservableProperty]
+    private UiLanguageOption? _selectedUiLanguageOption;
 
     [ObservableProperty]
     private bool _desktopRobotWheelZoomEnabled;
@@ -183,31 +189,31 @@ public partial class MainWindowViewModel : ViewModelBase
     private string? _selectedRecentNcfPath;
 
     [ObservableProperty]
-    private string _targetKindText = "内置托管版本";
+    private string _targetKindText = LocalizationService.T("Agent.TargetManaged");
 
     [ObservableProperty]
-    private string _targetVersionText = "等待检测";
+    private string _targetVersionText = LocalizationService.T("Status.WaitingDetect");
 
     [ObservableProperty]
-    private string _targetFrameworkText = "等待检测";
+    private string _targetFrameworkText = LocalizationService.T("Status.WaitingDetect");
 
     [ObservableProperty]
-    private string _targetEntryText = "等待检测";
+    private string _targetEntryText = LocalizationService.T("Status.WaitingDetect");
 
     [ObservableProperty]
-    private string _targetValidationMessage = "桌面端将管理此 Runtime 的安装与更新。";
+    private string _targetValidationMessage = LocalizationService.T("Agent.ManagedValidation");
 
     [ObservableProperty]
     private string _targetStatusColor = "#6C757D";
 
     [ObservableProperty]
-    private string _mainButtonText = "启动目标";
+    private string _mainButtonText = LocalizationService.T("Action.StartTarget");
 
     [ObservableProperty]
     private bool _isOperationInProgress = false;
 
     [ObservableProperty]
-    private string _desktopBridgeStatusText = "等待 NCF 启动";
+    private string _desktopBridgeStatusText = LocalizationService.T("Status.WaitingNcfStart");
 
     [ObservableProperty]
     private string _desktopBridgeStatusColor = "#6C757D";
@@ -239,7 +245,11 @@ public partial class MainWindowViewModel : ViewModelBase
 
     public IReadOnlyList<string> EnvironmentOptions { get; } = new[] { "Production", "Development" };
 
+    public IReadOnlyList<UiLanguageOption> UiLanguageOptions { get; } = UiLanguageOption.CreateAll();
+
     public string ManagedRuntimePath => NcfService.NcfRuntimePath;
+
+    public string LatestVersionDisplay => LocalizationService.T("Common.VersionPrefix", LatestVersion);
 
     public bool UsesTemplateDefaultConfiguration
     {
@@ -311,8 +321,8 @@ public partial class MainWindowViewModel : ViewModelBase
     public bool IsTargetSelectionEnabled => !IsOperationInProgress && !_isNcfRunning;
 
     public string LaunchConfigurationSummary => IsRemoteTargetMode
-        ? "远程连接配置"
-        : $"{AspNetCoreEnvironment} · 端口 {StartPort}–{EndPort}";
+        ? LocalizationService.T("Launch.RemoteSummary")
+        : LocalizationService.T("Launch.LocalSummary", AspNetCoreEnvironment, StartPort, EndPort);
 
     public string ManagedModeButtonBackground => IsManagedTargetMode ? "#2563EB" : "Transparent";
 
@@ -337,7 +347,7 @@ public partial class MainWindowViewModel : ViewModelBase
     private string _browserErrorMessage = "";
 
     [ObservableProperty]
-    private string _browserNavigationStatus = "准备中";
+    private string _browserNavigationStatus = LocalizationService.T("Browser.PreparingStatus");
     
     [ObservableProperty]
     private bool _isInitializing = true;
@@ -528,6 +538,46 @@ public partial class MainWindowViewModel : ViewModelBase
 
     partial void OnShowDetailedInfoChanged(bool value) => SaveDesktopSettings();
 
+    partial void OnLatestVersionChanged(string value) => OnPropertyChanged(nameof(LatestVersionDisplay));
+
+    partial void OnUiLanguageChanged(string value)
+    {
+        var normalized = LocalizationService.NormalizeLanguage(value);
+        if (!string.Equals(normalized, value, StringComparison.OrdinalIgnoreCase))
+        {
+            UiLanguage = normalized;
+            return;
+        }
+
+        var option = UiLanguageOptions.FirstOrDefault(item =>
+            string.Equals(item.Code, normalized, StringComparison.OrdinalIgnoreCase));
+        if (!ReferenceEquals(SelectedUiLanguageOption, option))
+        {
+            SelectedUiLanguageOption = option;
+        }
+
+        if (_suppressDesktopSettingsSave)
+        {
+            return;
+        }
+
+        LocalizationService.Instance.SetLanguage(normalized);
+        SaveDesktopSettings();
+    }
+
+    partial void OnSelectedUiLanguageOptionChanged(UiLanguageOption? value)
+    {
+        if (value == null)
+        {
+            return;
+        }
+
+        if (!string.Equals(UiLanguage, value.Code, StringComparison.OrdinalIgnoreCase))
+        {
+            UiLanguage = value.Code;
+        }
+    }
+
     partial void OnDesktopRobotWheelZoomEnabledChanged(bool value) => SaveDesktopSettings();
 
     partial void OnDesktopRobotLayoutModeChanged(DesktopRobotLayoutMode value)
@@ -699,6 +749,10 @@ public partial class MainWindowViewModel : ViewModelBase
         _logBuffer = new StringBuilder();
         _ncfService.OnDownloadLog = AddLog;
         InitializeAudioServices();
+        SelectedUiLanguageOption = UiLanguageOptions.FirstOrDefault(option =>
+            string.Equals(option.Code, UiLanguage, StringComparison.OrdinalIgnoreCase))
+            ?? UiLanguageOptions[0];
+        LocalizationService.Instance.LanguageChanged += OnUiLanguageCatalogChanged;
         
         // 🚀 初始化日志批量更新定时器（性能优化）
         _logUpdateTimer = new System.Timers.Timer(LogUpdateIntervalMs);
@@ -711,6 +765,58 @@ public partial class MainWindowViewModel : ViewModelBase
         
         // 初始化应用程序
         _ = Task.Run(InitializeApplicationAsync);
+    }
+
+    private void OnUiLanguageCatalogChanged(object? sender, EventArgs e)
+    {
+        _ = Dispatcher.UIThread.InvokeAsync(RefreshLocalizedUiStrings);
+    }
+
+    private void RefreshLocalizedUiStrings()
+    {
+        if (_isNcfRunning)
+        {
+            MainButtonText = LocalizationService.T("Action.StopTarget");
+            CurrentStatus = LocalizationService.T("Status.Running");
+        }
+        else if (!IsOperationInProgress)
+        {
+            MainButtonText = LocalizationService.T("Action.StartTarget");
+            var stopped = CurrentStatus is "已停止" or "Stopped" ||
+                          string.Equals(CurrentStatus, LocalizationService.T("Status.Stopped"), StringComparison.Ordinal);
+            CurrentStatus = LocalizationService.T(stopped ? "Status.Stopped" : "Status.Ready");
+            if (SiteUrl is "未启动" or "Not started" ||
+                string.Equals(SiteUrl, LocalizationService.T("Status.NotStarted"), StringComparison.Ordinal))
+            {
+                SiteUrl = LocalizationService.T("Status.NotStarted");
+            }
+        }
+        else
+        {
+            MainButtonText = LocalizationService.T("Action.StopTarget");
+            CurrentStatus = LocalizationService.T("Status.Starting");
+        }
+
+        TemplateCreationStatus = LocalizationService.T("Template.StatusDefault");
+        OnPropertyChanged(nameof(LaunchConfigurationSummary));
+        OnPropertyChanged(nameof(LatestVersionDisplay));
+        OnPropertyChanged(nameof(WakePhraseLabel));
+        OnPropertyChanged(nameof(VoiceModelOptions));
+        OnPropertyChanged(nameof(TtsModelOptions));
+        OnPropertyChanged(nameof(TtsVoiceOptions));
+        var selectedVoice = SelectedVoiceModel;
+        SelectedVoiceModel = null;
+        SelectedVoiceModel = selectedVoice;
+        var selectedTts = SelectedTtsModel;
+        SelectedTtsModel = null;
+        SelectedTtsModel = selectedTts;
+        var selectedVoiceOption = SelectedTtsVoice;
+        SelectedTtsVoice = null;
+        SelectedTtsVoice = selectedVoiceOption;
+        RefreshSelectedLaunchTarget();
+        RefreshVoiceModelReadiness();
+        RefreshWakeWordModelReadiness();
+        RefreshTtsModelReadiness();
     }
 
     /// <summary>
@@ -769,6 +875,7 @@ public partial class MainWindowViewModel : ViewModelBase
             AutoOpenBrowser = AutoOpenBrowser,
             AutoCleanDownloads = AutoCleanDownloads,
             ShowDetailedInfo = ShowDetailedInfo,
+            UiLanguage = UiLanguage,
             StartPort = StartPort,
             EndPort = EndPort,
             LaunchTargetKind = LaunchTargetKind,
@@ -1543,8 +1650,8 @@ public partial class MainWindowViewModel : ViewModelBase
             else
             {
                 AddLog("🛑 操作已取消");
-                MainButtonText = "启动目标";
-                CurrentStatus = "就绪";
+                MainButtonText = LocalizationService.T("Action.StartTarget");
+                CurrentStatus = LocalizationService.T("Status.Ready");
                 StatusColor = "#28A745";
             }
         }
@@ -1797,10 +1904,10 @@ public partial class MainWindowViewModel : ViewModelBase
         }
 
         var confirm = await ShowConfirmDialogAsync(
-            "关闭应用",
-            "NCF 正在运行。关闭窗口将停止 NCF 进程。\n是否继续？",
-            "停止并关闭",
-            "取消"
+            LocalizationService.T("Shell.CloseAppTitle"),
+            LocalizationService.T("Shell.CloseAppMessage"),
+            LocalizationService.T("Shell.CloseAppConfirm"),
+            LocalizationService.T("Action.Cancel")
         ).ConfigureAwait(true);
 
         if (!confirm)
@@ -1836,6 +1943,11 @@ public partial class MainWindowViewModel : ViewModelBase
                 AutoOpenBrowser = desktopSettings.AutoOpenBrowser;
                 AutoCleanDownloads = desktopSettings.AutoCleanDownloads;
                 ShowDetailedInfo = desktopSettings.ShowDetailedInfo;
+                UiLanguage = LocalizationService.NormalizeLanguage(desktopSettings.UiLanguage);
+                LocalizationService.Instance.SetLanguage(UiLanguage, raiseEvent: false);
+                SelectedUiLanguageOption = UiLanguageOptions.FirstOrDefault(option =>
+                    string.Equals(option.Code, UiLanguage, StringComparison.OrdinalIgnoreCase))
+                    ?? UiLanguageOptions[0];
                 StartPort = Math.Clamp(desktopSettings.StartPort, 1024, 65535);
                 EndPort = Math.Clamp(desktopSettings.EndPort, StartPort, 65535);
                 ExternalNcfPath = desktopSettings.ExternalNcfPath ?? string.Empty;
@@ -2107,9 +2219,9 @@ public partial class MainWindowViewModel : ViewModelBase
             var cancellationToken = _cancellationTokenSource.Token;
             Robot.SetProcessState("启动中", "正在准备 NCF 运行环境");
 
-            CurrentStatus = "启动中";
+            CurrentStatus = LocalizationService.T("Status.Starting");
             StatusColor = "#007ACC";
-            MainButtonText = "停止目标";
+            MainButtonText = LocalizationService.T("Action.StopTarget");
             
             AddLog("🚀 开始启动 NCF 目标...");
 
@@ -2136,9 +2248,9 @@ public partial class MainWindowViewModel : ViewModelBase
                     await Dispatcher.UIThread.InvokeAsync(() =>
                     {
                         IsOperationInProgress = false;
-                        CurrentStatus = "已取消";
+                        CurrentStatus = LocalizationService.T("Status.Cancelled");
                         StatusColor = "#6C757D";
-                        MainButtonText = "启动目标";
+                        MainButtonText = LocalizationService.T("Action.StartTarget");
                         AddLog("ℹ️ 用户取消了启动操作");
                     });
                     return;
@@ -2208,7 +2320,7 @@ public partial class MainWindowViewModel : ViewModelBase
             
             _isNcfRunning = true;
             NotifyLaunchTargetCommandsCanExecuteChanged();
-            CurrentStatus = "运行中";
+            CurrentStatus = LocalizationService.T("Status.Running");
             StatusColor = "#28A745";
             ProgressText = "NCF 运行中";
             ProgressValue = 100;
@@ -2238,12 +2350,12 @@ public partial class MainWindowViewModel : ViewModelBase
             {
                 await _desktopBridgeClient.StopAsync();
                 _desktopBridgeSessionToken = null;
-                await Dispatcher.UIThread.InvokeAsync(() => SiteUrl = "未启动");
+                await Dispatcher.UIThread.InvokeAsync(() => SiteUrl = LocalizationService.T("Status.NotStarted"));
             }
             Robot.SetProcessState("错误", ex.Message, isError: true);
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
-                CurrentStatus = "错误";
+                CurrentStatus = LocalizationService.T("Status.Error");
                 StatusColor = "#DC3545";
                 AddLog($"❌ 启动失败: {ex.Message}");
             });
@@ -2253,8 +2365,8 @@ public partial class MainWindowViewModel : ViewModelBase
             IsOperationInProgress = false;
             if (!_isNcfRunning)
             {
-                MainButtonText = "启动目标";
-                CurrentStatus = "就绪";
+                MainButtonText = LocalizationService.T("Action.StartTarget");
+                CurrentStatus = LocalizationService.T("Status.Ready");
                 StatusColor = "#28A745";
                 _activeLaunchTarget = null;
             }
@@ -2699,16 +2811,16 @@ public partial class MainWindowViewModel : ViewModelBase
                 {
                     NotifyLaunchTargetCommandsCanExecuteChanged();
                     Robot.SetProcessState("已停止", "NCF 站点已停止，可重新启动");
-                    MainButtonText = "启动目标";
-                    CurrentStatus = "已停止";
+                    MainButtonText = LocalizationService.T("Action.StartTarget");
+                    CurrentStatus = LocalizationService.T("Status.Stopped");
                     StatusColor = "#6C757D";
-                    SiteUrl = "未启动";
+                    SiteUrl = LocalizationService.T("Status.NotStarted");
                     ProgressText = "已停止 — 可继续操作";
                     ProgressValue = 0;
                     IsProgressIndeterminate = false;
                     IsBrowserTabVisible = false;
                     CurrentTabIndex = 0; // 回到 Agent 工作台主页面
-                    DesktopBridgeStatusText = "等待 NCF 启动";
+                    DesktopBridgeStatusText = LocalizationService.T("Status.WaitingNcfStart");
                     DesktopBridgeStatusColor = "#6C757D";
                     DesktopBridgeNoticeMessage = string.Empty;
                     IsDesktopBridgeNoticeVisible = false;

@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using NcfDesktopApp.GUI.Models;
 using NcfDesktopApp.GUI.Services;
 using NcfDesktopApp.GUI.Views;
@@ -14,6 +15,44 @@ public sealed class DesktopUserSettingsTests
         var settings = new DesktopUserSettings();
 
         Assert.IsFalse(settings.SttAutoSend);
+    }
+
+    [TestMethod]
+    public void UiLanguage_DefaultsToChinese()
+    {
+        var settings = new DesktopUserSettings();
+
+        Assert.AreEqual("zh", settings.UiLanguage);
+    }
+
+    [TestMethod]
+    public void LocalizationService_NormalizeLanguage_FallsBackToChinese()
+    {
+        Assert.AreEqual("zh", LocalizationService.NormalizeLanguage(null));
+        Assert.AreEqual("zh", LocalizationService.NormalizeLanguage(""));
+        Assert.AreEqual("zh", LocalizationService.NormalizeLanguage("fr"));
+        Assert.AreEqual("en", LocalizationService.NormalizeLanguage("en"));
+        Assert.AreEqual("en", LocalizationService.NormalizeLanguage("EN"));
+    }
+
+    [TestMethod]
+    public void LocalizationService_Get_UsesCurrentLanguageWithChineseFallback()
+    {
+        var localization = LocalizationService.Instance;
+        localization.InitializeForTests(
+            new Dictionary<string, string>
+            {
+                ["Demo.Hello"] = "你好",
+                ["Demo.OnlyZh"] = "仅中文"
+            },
+            new Dictionary<string, string> { ["Demo.Hello"] = "Hello" },
+            "zh");
+
+        Assert.AreEqual("你好", localization.Get("Demo.Hello"));
+
+        localization.SetLanguage("en", raiseEvent: false);
+        Assert.AreEqual("Hello", localization.Get("Demo.Hello"));
+        Assert.AreEqual("仅中文", localization.Get("Demo.OnlyZh"));
     }
 
     [TestMethod]

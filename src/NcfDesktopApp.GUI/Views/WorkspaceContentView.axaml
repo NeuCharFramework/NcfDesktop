@@ -1,6 +1,7 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:NcfDesktopApp.GUI.ViewModels"
+        xmlns:loc="using:NcfDesktopApp.GUI.Markup"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:views="using:NcfDesktopApp.GUI.Views"
@@ -42,7 +43,7 @@
                         HorizontalAlignment="Stretch"
                         VerticalAlignment="Top"
                         ZIndex="100">
-                <Button Content="◈ Agent 工作台"
+                <Button Content="{loc:Loc Tabs.AgentWorkspace}"
                         Command="{Binding SwitchToSettingsCommand}"
                         Background="{Binding SettingsTabButtonBackground}"
                         Foreground="{Binding SettingsTabButtonForeground}"
@@ -51,7 +52,7 @@
                         FontWeight="SemiBold"
                         Margin="0,0,1,0"
                         Classes="tab-button settings-tab"/>
-                <Button Content="↗ 运行站点"
+                <Button Content="{loc:Loc Tabs.RunningSite}"
                         Command="{Binding SwitchToBrowserCommand}"
                         Background="{Binding BrowserTabButtonBackground}"
                         Foreground="{Binding BrowserTabButtonForeground}"
@@ -86,7 +87,7 @@
                 <TextBlock Text="🚀"
                            FontSize="48"
                            HorizontalAlignment="Center"/>
-                <TextBlock Text="正在初始化 NCF 桌面应用程序..."
+                <TextBlock Text="{loc:Loc Tabs.Initializing}"
                            FontSize="16"
                            HorizontalAlignment="Center"
                            Foreground="{DynamicResource SecondaryTextBrush}"/>

@@ -9,7 +9,12 @@
     修改标识：Senparc - 20260804
     修改描述：v0.6.0 扩展语音模型选项并适配 .NET 10
 
+    修改标识：Senparc - 20260808
+    修改描述：v0.9.0 展示名随界面语言切换
+
 ----------------------------------------------------------------*/
+
+using NcfDesktopApp.GUI.Services;
 
 namespace NcfDesktopApp.GUI.Models;
 
@@ -26,15 +31,21 @@ public enum LocalVoiceModelKind
 /// </summary>
 public sealed record VoiceModelOption(
     string Id,
-    string DisplayName,
-    string Description,
-    string ApproximateSizeText,
     LocalVoiceModelKind Kind,
     string FileName,
     long ApproximateBytes,
     long MinimumExpectedBytes,
-    bool CanDownload)
+    bool CanDownload,
+    int ApproximateSizeMiB = 0)
 {
+    public string DisplayName => LocalizationService.T($"Voice.Model.{Id}.Name");
+
+    public string Description => LocalizationService.T($"Voice.Model.{Id}.Desc");
+
+    public string ApproximateSizeText => CanDownload
+        ? LocalizationService.T("Voice.Size.ApproxMiB", ApproximateSizeMiB)
+        : LocalizationService.T("Voice.Size.UserProvided");
+
     public string DisplayLabel => $"{DisplayName} · {ApproximateSizeText}";
 
     public override string ToString() => DisplayLabel;

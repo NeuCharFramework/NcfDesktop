@@ -1,9 +1,10 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:NcfDesktopApp.GUI.ViewModels"
+        xmlns:loc="using:NcfDesktopApp.GUI.Markup"
         x:Class="NcfDesktopApp.GUI.Views.WorkspaceSettingsWindow"
         x:DataType="vm:MainWindowViewModel"
-        Title="工作台设置"
+        Title="{loc:Loc Settings.WindowTitle}"
         Width="820" Height="680"
         MinWidth="700" MinHeight="560"
         WindowStartupLocation="CenterOwner"
@@ -20,8 +21,8 @@
                 BorderThickness="0,0,0,1"
                 Padding="22,16">
             <StackPanel Spacing="3">
-                <TextBlock Text="工作台设置" FontSize="20" FontWeight="SemiBold"/>
-                <TextBlock Text="按类别配置工作台、语音模型、桌面宠物与托管 Runtime；更改会立即应用。"
+                <TextBlock Text="{loc:Loc Settings.Title}" FontSize="20" FontWeight="SemiBold"/>
+                <TextBlock Text="{loc:Loc Settings.Subtitle}"
                            FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"/>
             </StackPanel>
         </Border>
@@ -30,7 +31,7 @@
                     Classes="settings-navigation"
                     TabStripPlacement="Left"
                     MinHeight="0">
-            <TabItem Header="常规">
+            <TabItem Header="{loc:Loc Settings.TabGeneral}">
                 <ScrollViewer MinHeight="0"
                               VerticalScrollBarVisibility="Auto"
                               HorizontalScrollBarVisibility="Disabled">
@@ -39,27 +40,27 @@
                 <Border Classes="settings-section">
                     <StackPanel Spacing="12">
                         <StackPanel Spacing="2">
-                            <TextBlock Text="启动配置" Classes="section-title"/>
-                            <TextBlock Text="目标运行期间锁定；新的配置在下次启动时生效。"
+                            <TextBlock Text="{loc:Loc Settings.LaunchConfig}" Classes="section-title"/>
+                            <TextBlock Text="{loc:Loc Settings.LaunchConfigHint}"
                                        Classes="section-description"/>
                         </StackPanel>
 
                         <Grid ColumnDefinitions="120,*" RowDefinitions="Auto,Auto" RowSpacing="10">
-                            <TextBlock Grid.Row="0" Grid.Column="0" Text="ASP.NET Core 环境"
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Settings.AspNetEnv}"
                                        Classes="field-label"/>
                             <ComboBox Grid.Row="0" Grid.Column="1"
                                       ItemsSource="{Binding EnvironmentOptions}"
                                       SelectedItem="{Binding AspNetCoreEnvironment, Mode=TwoWay}"
                                       IsEnabled="{Binding IsTargetSelectionEnabled}"/>
 
-                            <TextBlock Grid.Row="1" Grid.Column="0" Text="本地端口范围"
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="{loc:Loc Settings.PortRange}"
                                        Classes="field-label"/>
                             <Grid Grid.Row="1" Grid.Column="1" ColumnDefinitions="*,Auto,*">
                                 <NumericUpDown Grid.Column="0"
                                                Value="{Binding StartPort}"
                                                Minimum="1024" Maximum="65535"
                                                IsEnabled="{Binding IsTargetSelectionEnabled}"/>
-                                <TextBlock Grid.Column="1" Text="—" Margin="10,0"
+                                <TextBlock Grid.Column="1" Text="{loc:Loc Common.EmDash}" Margin="10,0"
                                            VerticalAlignment="Center"/>
                                 <NumericUpDown Grid.Column="2"
                                                Value="{Binding EndPort}"
@@ -73,13 +74,24 @@
                 <Border Classes="settings-section">
                     <StackPanel Spacing="10">
                         <StackPanel Spacing="2">
-                            <TextBlock Text="使用偏好" Classes="section-title"/>
-                            <TextBlock Text="减少重复操作，并控制运行日志的详细程度。"
+                            <TextBlock Text="{loc:Loc Settings.Preferences}" Classes="section-title"/>
+                            <TextBlock Text="{loc:Loc Settings.PreferencesHint}"
                                        Classes="section-description"/>
                         </StackPanel>
-                        <CheckBox Content="目标就绪后自动打开内嵌站点"
+                        <Grid ColumnDefinitions="120,*">
+                            <TextBlock Grid.Column="0"
+                                       Text="{loc:Loc Settings.UiLanguage}"
+                                       Classes="field-label"/>
+                            <ComboBox Grid.Column="1"
+                                      ItemsSource="{Binding UiLanguageOptions}"
+                                      SelectedItem="{Binding SelectedUiLanguageOption, Mode=TwoWay}"
+                                      DisplayMemberBinding="{Binding DisplayName}"/>
+                        </Grid>
+                        <TextBlock Text="{loc:Loc Settings.UiLanguageHint}"
+                                   Classes="section-description"/>
+                        <CheckBox Content="{loc:Loc Settings.AutoOpenBrowser}"
                                   IsChecked="{Binding AutoOpenBrowser}"/>
-                        <CheckBox Content="显示详细下载和启动日志"
+                        <CheckBox Content="{loc:Loc Settings.ShowDetailedInfo}"
                                   IsChecked="{Binding ShowDetailedInfo}"/>
                     </StackPanel>
                 </Border>
@@ -89,7 +101,7 @@
                 </ScrollViewer>
             </TabItem>
 
-            <TabItem Header="语音模型">
+            <TabItem Header="{loc:Loc Settings.TabVoice}">
                 <ScrollViewer MinHeight="0"
                               VerticalScrollBarVisibility="Auto"
                               HorizontalScrollBarVisibility="Disabled">
@@ -98,21 +110,21 @@
                 <Border Classes="settings-section">
                     <StackPanel Spacing="10">
                         <StackPanel Spacing="2">
-                            <TextBlock Text="本地语音输入" Classes="section-title"/>
-                            <TextBlock Text="模型只在本机加载；录音转写完成后先写入 AdminChat 输入框，可按下方设置确认后发送或自动发送。"
+                            <TextBlock Text="{loc:Loc Settings.LocalVoice}" Classes="section-title"/>
+                            <TextBlock Text="{loc:Loc Settings.LocalVoiceHint}"
                                        Classes="section-description"/>
                         </StackPanel>
 
                         <Grid ColumnDefinitions="120,*" RowDefinitions="Auto,Auto" RowSpacing="10">
-                            <TextBlock Grid.Row="0" Grid.Column="0" Text="离线模型"
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Settings.OfflineModel}"
                                        Classes="field-label"/>
                             <ComboBox Grid.Row="0" Grid.Column="1"
                                       ItemsSource="{Binding VoiceModelOptions}"
                                       SelectedItem="{Binding SelectedVoiceModel, Mode=TwoWay}"
                                       DisplayMemberBinding="{Binding DisplayLabel}"
-                                      PlaceholderText="请先选择模型"/>
+                                      PlaceholderText="{loc:Loc Settings.SelectModelPlaceholder}"/>
 
-                            <TextBlock Grid.Row="1" Grid.Column="0" Text="识别语言"
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="{loc:Loc Settings.RecognitionLanguage}"
                                        Classes="field-label"/>
                             <ComboBox Grid.Row="1" Grid.Column="1"
                                       ItemsSource="{Binding VoiceLanguageOptions}"
@@ -143,37 +155,37 @@
                         </Border>
 
                         <WrapPanel Orientation="Horizontal">
-                            <Button Content="下载所选模型"
+                            <Button Content="{loc:Loc Settings.DownloadSelectedModel}"
                                     Command="{Binding DownloadVoiceModelCommand}"
                                     Classes="primary-action"
                                     Margin="0,0,8,8"/>
-                            <Button Content="选择本地模型"
+                            <Button Content="{loc:Loc Settings.SelectLocalModel}"
                                     Command="{Binding SelectCustomVoiceModelCommand}"
                                     Classes="secondary-action"
                                     Margin="0,0,8,8"/>
-                            <Button Content="打开模型目录"
+                            <Button Content="{loc:Loc Settings.OpenModelDirectory}"
                                     Command="{Binding OpenVoiceModelDirectoryCommand}"
                                     Classes="secondary-action"
                                     Margin="0,0,8,8"/>
-                            <Button Content="取消"
+                            <Button Content="{loc:Loc Action.Cancel}"
                                     Command="{Binding CancelVoiceInputCommand}"
                                     IsVisible="{Binding IsVoiceCancelVisible}"
                                     Classes="secondary-action"
                                     Margin="0,0,0,8"/>
                         </WrapPanel>
 
-                        <CheckBox Content="STT 识别完成后自动发送"
+                        <CheckBox Content="{loc:Loc Settings.SttAutoSend}"
                                   IsChecked="{Binding SttAutoSend, Mode=TwoWay}"
-                                  ToolTip.Tip="关闭时只把识别文字写入输入框；开启时会立即通过现有 AdminChat 发送流程发送。"/>
+                                  ToolTip.Tip="{loc:Loc Settings.SttAutoSendTip}"/>
 
                         <Border Background="#0D2563EB" CornerRadius="7" Padding="11">
                             <StackPanel Spacing="7">
-                                <CheckBox Content="启用固定唤醒词“你好 Cici”"
+                                <CheckBox Content="{loc:Loc Settings.WakeWordEnable}"
                                           IsChecked="{Binding WakeWordEnabled, Mode=TwoWay}"/>
-                                <TextBlock Text="{Binding WakePhraseText, StringFormat='唤醒短语：{0}'}"
+                                <TextBlock Text="{Binding WakePhraseLabel}"
                                            FontWeight="SemiBold"
                                            FontSize="11"/>
-                                <TextBlock Text="仅当 AdminChat、Whisper 与唤醒模型均就绪时才监听；关闭后立即释放麦克风。监听音频不保存、不上传，朗读和录音期间会自动暂停以防误触发。说完唤醒词后请稍作停顿再说指令。"
+                                <TextBlock Text="{loc:Loc Settings.WakeWordHint}"
                                            FontSize="10.5"
                                            TextWrapping="Wrap"
                                            Foreground="{DynamicResource SecondaryTextBrush}"/>
@@ -190,16 +202,16 @@
                                              Value="{Binding WakeWordDownloadProgressValue}"
                                              Minimum="0" Maximum="100" Height="4"/>
                                 <WrapPanel Orientation="Horizontal">
-                                    <Button Content="下载唤醒模型"
+                                    <Button Content="{loc:Loc Settings.DownloadWakeModel}"
                                             Command="{Binding DownloadWakeWordModelCommand}"
                                             Classes="primary-action"
                                             Margin="0,0,8,0"/>
-                                    <Button Content="取消下载"
+                                    <Button Content="{loc:Loc Settings.CancelDownload}"
                                             Command="{Binding CancelWakeWordModelDownloadCommand}"
                                             IsVisible="{Binding IsWakeWordModelBusy}"
                                             Classes="secondary-action"
                                             Margin="0,0,8,0"/>
-                                    <Button Content="打开唤醒模型目录"
+                                    <Button Content="{loc:Loc Settings.OpenWakeModelDirectory}"
                                             Command="{Binding OpenWakeWordModelDirectoryCommand}"
                                             Classes="secondary-action"/>
                                 </WrapPanel>
@@ -211,28 +223,28 @@
                 <Border Classes="settings-section">
                     <StackPanel Spacing="10">
                         <StackPanel Spacing="2">
-                            <TextBlock Text="本地语音输出（TTS）" Classes="section-title"/>
-                            <TextBlock Text="Kokoro 在本机生成 AI 朗读音频，不上传回复文本或音频；模型大小为下载包估算值。"
+                            <TextBlock Text="{loc:Loc Settings.LocalTts}" Classes="section-title"/>
+                            <TextBlock Text="{loc:Loc Settings.LocalTtsHint}"
                                        Classes="section-description"/>
                         </StackPanel>
 
                         <Grid ColumnDefinitions="120,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="10">
-                            <TextBlock Grid.Row="0" Grid.Column="0" Text="离线模型"
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc Settings.OfflineModel}"
                                        Classes="field-label"/>
                             <ComboBox Grid.Row="0" Grid.Column="1"
                                       ItemsSource="{Binding TtsModelOptions}"
                                       SelectedItem="{Binding SelectedTtsModel, Mode=TwoWay}"
                                       DisplayMemberBinding="{Binding DisplayLabel}"
-                                      PlaceholderText="请先选择朗读模型"/>
+                                      PlaceholderText="{loc:Loc Settings.SelectTtsPlaceholder}"/>
 
-                            <TextBlock Grid.Row="1" Grid.Column="0" Text="中文音色"
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="{loc:Loc Settings.ChineseVoice}"
                                        Classes="field-label"/>
                             <ComboBox Grid.Row="1" Grid.Column="1"
                                       ItemsSource="{Binding TtsVoiceOptions}"
                                       SelectedItem="{Binding SelectedTtsVoice, Mode=TwoWay}"
                                       DisplayMemberBinding="{Binding DisplayName}"/>
 
-                            <TextBlock Grid.Row="2" Grid.Column="0" Text="语速"
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="{loc:Loc Settings.SpeechRate}"
                                        Classes="field-label"/>
                             <NumericUpDown Grid.Row="2" Grid.Column="1"
                                            Value="{Binding TtsSpeed, Mode=TwoWay}"
@@ -247,7 +259,7 @@
                                    FontSize="10.5"
                                    TextWrapping="Wrap"
                                    Foreground="{DynamicResource SecondaryTextBrush}"/>
-                        <CheckBox Content="AI 回复完成后自动朗读"
+                        <CheckBox Content="{loc:Loc Settings.TtsAutoRead}"
                                   IsChecked="{Binding TtsAutoRead, Mode=TwoWay}"/>
 
                         <Border Background="#0D7C3AED" CornerRadius="6" Padding="10">
@@ -273,23 +285,23 @@
                         </Border>
 
                         <WrapPanel Orientation="Horizontal">
-                            <Button Content="下载所选模型"
+                            <Button Content="{loc:Loc Settings.DownloadSelectedModel}"
                                     Command="{Binding DownloadTtsModelCommand}"
                                     Classes="primary-action"
                                     Margin="0,0,8,8"/>
-                            <Button Content="选择本地模型目录"
+                            <Button Content="{loc:Loc Settings.SelectLocalTtsDirectory}"
                                     Command="{Binding SelectCustomTtsModelCommand}"
                                     Classes="secondary-action"
                                     Margin="0,0,8,8"/>
-                            <Button Content="试听音色"
+                            <Button Content="{loc:Loc Settings.PreviewVoice}"
                                     Command="{Binding PreviewTtsVoiceCommand}"
                                     Classes="secondary-action"
                                     Margin="0,0,8,8"/>
-                            <Button Content="停止 / 取消"
+                            <Button Content="{loc:Loc Settings.StopCancel}"
                                     Command="{Binding CancelTtsOperationCommand}"
                                     Classes="secondary-action"
                                     Margin="0,0,8,8"/>
-                            <Button Content="打开模型目录"
+                            <Button Content="{loc:Loc Settings.OpenModelDirectory}"
                                     Command="{Binding OpenTtsModelDirectoryCommand}"
                                     Classes="secondary-action"
                                     Margin="0,0,0,8"/>
@@ -302,7 +314,7 @@
                 </ScrollViewer>
             </TabItem>
 
-            <TabItem Header="桌面宠物">
+            <TabItem Header="{loc:Loc Settings.TabRobot}">
                 <ScrollViewer MinHeight="0"
                               VerticalScrollBarVisibility="Auto"
                               HorizontalScrollBarVisibility="Disabled">
@@ -311,8 +323,8 @@
                             <Border Classes="settings-section">
                                 <StackPanel Spacing="12">
                                     <StackPanel Spacing="2">
-                                        <TextBlock Text="多个宠物的展示方式" Classes="section-title"/>
-                                        <TextBlock Text="此偏好应用于所有工作区，可随时切换，不会停止正在运行的 NCF。"
+                                        <TextBlock Text="{loc:Loc Settings.RobotLayoutTitle}" Classes="section-title"/>
+                                        <TextBlock Text="{loc:Loc Settings.RobotLayoutHint}"
                                                    Classes="section-description"/>
                                     </StackPanel>
 
@@ -327,8 +339,8 @@
                                                          IsChecked="{Binding UsesFreeFloatingDesktopRobots, Mode=TwoWay}"
                                                          VerticalContentAlignment="Top">
                                                 <StackPanel Spacing="4" Margin="4,0,0,0">
-                                                    <TextBlock Text="自由浮动" FontWeight="SemiBold"/>
-                                                    <TextBlock Text="每个工作区一个宠物，可分别拖动、悬停查看详情和双击语音。"
+                                                    <TextBlock Text="{loc:Loc Settings.FreeFloating}" FontWeight="SemiBold"/>
+                                                    <TextBlock Text="{loc:Loc Settings.FreeFloatingHint}"
                                                                FontSize="11"
                                                                Foreground="{DynamicResource SecondaryTextBrush}"
                                                                TextWrapping="Wrap"/>
@@ -346,8 +358,8 @@
                                                          IsChecked="{Binding UsesGroupedDesktopRobotList, Mode=TwoWay}"
                                                          VerticalContentAlignment="Top">
                                                 <StackPanel Spacing="4" Margin="4,0,0,0">
-                                                    <TextBlock Text="统一标签列表" FontWeight="SemiBold"/>
-                                                    <TextBlock Text="收纳到一个置顶标签；仍显示名称、宠物、状态、详情、连接和常用操作。"
+                                                    <TextBlock Text="{loc:Loc Settings.GroupedList}" FontWeight="SemiBold"/>
+                                                    <TextBlock Text="{loc:Loc Settings.GroupedListHint}"
                                                                FontSize="11"
                                                                Foreground="{DynamicResource SecondaryTextBrush}"
                                                                TextWrapping="Wrap"/>
@@ -361,19 +373,19 @@
                             <Border Classes="settings-section">
                                 <StackPanel Spacing="12">
                                     <StackPanel Spacing="2">
-                                        <TextBlock Text="桌面宠物" Classes="section-title"/>
-                                        <TextBlock Text="控制浮窗显示与大小。缩放只改变显示尺寸，不增加动画刷新频率。"
+                                        <TextBlock Text="{loc:Loc Settings.DesktopRobot}" Classes="section-title"/>
+                                        <TextBlock Text="{loc:Loc Settings.DesktopRobotHint}"
                                                    Classes="section-description"/>
                                     </StackPanel>
 
-                                    <CheckBox Content="鼠标位于宠物上方时，允许使用滚轮调整大小"
+                                    <CheckBox Content="{loc:Loc Settings.WheelZoom}"
                                               IsEnabled="{Binding UsesFreeFloatingDesktopRobots}"
                                               IsChecked="{Binding DesktopRobotWheelZoomEnabled, Mode=TwoWay}"/>
 
                                     <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto" RowSpacing="10"
                                           IsEnabled="{Binding UsesFreeFloatingDesktopRobots}">
                                         <TextBlock Grid.Row="0" Grid.Column="0"
-                                                   Text="当前大小（倍）"
+                                                   Text="{loc:Loc Settings.CurrentScale}"
                                                    Classes="field-label"/>
                                         <NumericUpDown Grid.Row="0" Grid.Column="1"
                                                        Value="{Binding DesktopRobotScale, Mode=TwoWay}"
@@ -381,7 +393,7 @@
                                                        Increment="0.1"/>
 
                                         <TextBlock Grid.Row="1" Grid.Column="0"
-                                                   Text="滚轮放大上限（倍）"
+                                                   Text="{loc:Loc Settings.MaxScale}"
                                                    Classes="field-label"/>
                                         <NumericUpDown Grid.Row="1" Grid.Column="1"
                                                        Value="{Binding DesktopRobotMaximumScale, Mode=TwoWay}"
@@ -389,15 +401,15 @@
                                                        Increment="0.1"/>
                                     </Grid>
 
-                                    <TextBlock Text="大小与滚轮设置用于自由浮动模式；统一列表采用固定紧凑尺寸。1.0 倍是缩小下限，放大上限可设置到 4.0 倍。"
+                                    <TextBlock Text="{loc:Loc Settings.ScaleHint}"
                                                Classes="section-description"/>
 
                                     <WrapPanel Orientation="Horizontal">
-                                        <Button Content="显示桌面宠物"
+                                        <Button Content="{loc:Loc Settings.ShowDesktopRobot}"
                                                 Command="{Binding ShowDesktopRobotCommand}"
                                                 Classes="primary-action"
                                                 Margin="0,0,8,8"/>
-                                        <Button Content="恢复默认大小"
+                                        <Button Content="{loc:Loc Settings.ResetRobotSize}"
                                                 Command="{Binding ResetDesktopRobotSizeCommand}"
                                                 Classes="secondary-action"
                                                 Margin="0,0,0,8"/>
@@ -409,7 +421,7 @@
                 </ScrollViewer>
             </TabItem>
 
-            <TabItem Header="Runtime">
+            <TabItem Header="{loc:Loc Settings.TabRuntime}">
                 <ScrollViewer MinHeight="0"
                               VerticalScrollBarVisibility="Auto"
                               HorizontalScrollBarVisibility="Disabled">
@@ -418,24 +430,24 @@
                 <Border Classes="settings-section">
                     <StackPanel Spacing="10">
                         <StackPanel Spacing="2">
-                            <TextBlock Text="托管 Runtime" Classes="section-title"/>
-                            <TextBlock Text="仅影响由桌面端下载和维护的托管版本。"
+                            <TextBlock Text="{loc:Loc Settings.ManagedRuntime}" Classes="section-title"/>
+                            <TextBlock Text="{loc:Loc Settings.ManagedRuntimeHint}"
                                        Classes="section-description"/>
                         </StackPanel>
-                        <CheckBox Content="安装完成后清理下载文件"
+                        <CheckBox Content="{loc:Loc Settings.AutoCleanDownloads}"
                                   IsChecked="{Binding AutoCleanDownloads}"
                                   IsEnabled="{Binding IsManagedTargetMode}"/>
                         <TextBox Text="{Binding MirrorServerBaseUrl, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                 Watermark="镜像服务器地址"
+                                 Watermark="{loc:Loc Settings.MirrorWatermark}"
                                  IsEnabled="{Binding IsManagedTargetMode}"
                                  FontFamily="Consolas,Menlo,Monaco,Courier New"/>
                         <StackPanel Orientation="Horizontal"
                                     Spacing="8"
                                     IsEnabled="{Binding IsManagedTargetMode}">
-                            <Button Content="测试更新源"
+                            <Button Content="{loc:Loc Settings.TestUpdateSource}"
                                     Command="{Binding TestConnectionCommand}"
                                     Classes="secondary-action"/>
-                            <Button Content="打开配置目录"
+                            <Button Content="{loc:Loc Settings.OpenConfigDirectory}"
                                     Command="{Binding OpenConfigDirectoryCommand}"
                                     Classes="secondary-action"/>
                         </StackPanel>
@@ -446,7 +458,7 @@
                 </ScrollViewer>
             </TabItem>
 
-            <TabItem Header="关于">
+            <TabItem Header="{loc:Loc Settings.TabAbout}">
                 <ScrollViewer MinHeight="0"
                               VerticalScrollBarVisibility="Auto"
                               HorizontalScrollBarVisibility="Disabled">
@@ -455,20 +467,20 @@
                             <Border Classes="settings-section">
                                 <StackPanel Spacing="12">
                                     <StackPanel Spacing="2">
-                                        <TextBlock Text="NCF Desktop" Classes="section-title"/>
-                                        <TextBlock Text="查看包含 build 编号的当前版本，并检查是否有新版本可用。"
+                                        <TextBlock Text="{loc:Loc Settings.AboutTitle}" Classes="section-title"/>
+                                        <TextBlock Text="{loc:Loc Settings.AboutHint}"
                                                    Classes="section-description"/>
                                     </StackPanel>
 
                                     <Grid ColumnDefinitions="120,*" RowDefinitions="Auto,Auto" RowSpacing="10">
                                         <TextBlock Grid.Row="0" Grid.Column="0"
-                                                   Text="当前版本" Classes="field-label"/>
+                                                   Text="{loc:Loc Settings.CurrentVersion}" Classes="field-label"/>
                                         <SelectableTextBlock Grid.Row="0" Grid.Column="1"
                                                              Text="{Binding DesktopAppCurrentVersion, StringFormat='v{0}'}"
                                                              FontWeight="SemiBold"/>
 
                                         <TextBlock Grid.Row="1" Grid.Column="0"
-                                                   Text="最新版本" Classes="field-label"/>
+                                                   Text="{loc:Loc Settings.LatestVersion}" Classes="field-label"/>
                                         <SelectableTextBlock Grid.Row="1" Grid.Column="1"
                                                              Text="{Binding DesktopAppLatestVersion}"
                                                              FontWeight="SemiBold"/>
@@ -486,18 +498,18 @@
                                     </Border>
 
                                     <WrapPanel Orientation="Horizontal">
-                                        <Button Content="重新检查"
+                                        <Button Content="{loc:Loc Settings.Recheck}"
                                                 Command="{Binding CheckDesktopAppUpdateCommand}"
                                                 IsEnabled="{Binding !IsDesktopAppUpdateChecking}"
                                                 Classes="secondary-action"
                                                 Margin="0,0,8,8"/>
-                                        <Button Content="前往 NCF 官网下载"
+                                        <Button Content="{loc:Loc Settings.GoDownload}"
                                                 Command="{Binding OpenDesktopDownloadPageCommand}"
                                                 Classes="primary-action"
                                                 Margin="0,0,0,8"/>
                                     </WrapPanel>
 
-                                    <TextBlock Text="程序启动后及每小时优先检查 NCF 官网发布信息；官网清单暂不可用时会自动回退 GitHub。下载入口始终打开 https://www.ncf.pub/Download。"
+                                    <TextBlock Text="{loc:Loc Settings.AboutFooter}"
                                                Classes="section-description"/>
                                 </StackPanel>
                             </Border>
@@ -514,11 +526,11 @@
                 Padding="20,12">
             <Grid ColumnDefinitions="*,Auto">
                 <TextBlock Grid.Column="0"
-                           Text="设置保存在桌面端配置目录中。"
+                           Text="{loc:Loc Settings.SavedHint}"
                            FontSize="10.5"
                            Foreground="{DynamicResource SecondaryTextBrush}"
                            VerticalAlignment="Center"/>
-                <Button Grid.Column="1" Content="完成" Click="CloseButton_OnClick"
+                <Button Grid.Column="1" Content="{loc:Loc Action.Done}" Click="CloseButton_OnClick"
                         Classes="primary-action"/>
             </Grid>
         </Border>

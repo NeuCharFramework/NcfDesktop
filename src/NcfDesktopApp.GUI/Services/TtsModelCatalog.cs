@@ -9,6 +9,9 @@
     修改标识：Senparc - 20260804
     修改描述：v0.6.0 增加本地 TTS 模型下载与文件完整性检查
 
+    修改标识：Senparc - 20260808
+    修改描述：v0.9.0 就绪文案支持界面语言
+
 ----------------------------------------------------------------*/
 
 using System;
@@ -28,29 +31,22 @@ internal static class TtsModelCatalog
     {
         new TtsModelOption(
             "kokoro-int8-v1.1",
-            "Kokoro v1.1 INT8（中英·103 音色）",
-            "推荐。自然度与速度均衡，CPU 可离线运行；下载约 140 MiB，解压占用以模型包为准。",
-            "约 140 MiB",
             LocalTtsModelKind.Kokoro,
             "kokoro-int8-multi-lang-v1_1.tar.bz2",
             "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-int8-multi-lang-v1_1.tar.bz2",
             147_031_220,
-            true),
+            true,
+            140),
         new TtsModelOption(
             "kokoro-full-v1.1",
-            "Kokoro v1.1 完整版（中英·103 音色）",
-            "高质量选项。未量化模型保留更多计算精度，但下载、加载和内存占用明显更高。",
-            "约 348 MiB",
             LocalTtsModelKind.Kokoro,
             "kokoro-multi-lang-v1_1.tar.bz2",
             "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-multi-lang-v1_1.tar.bz2",
             364_816_464,
-            true),
+            true,
+            348),
         new TtsModelOption(
             CustomModelId,
-            "手动加载本地 Kokoro 模型目录",
-            "选择已解压的 sherpa-onnx Kokoro 模型目录；目录需包含 ONNX、voices.bin、tokens.txt、词典与 espeak-ng-data。",
-            "用户提供",
             LocalTtsModelKind.Custom,
             string.Empty,
             string.Empty,
@@ -60,14 +56,14 @@ internal static class TtsModelCatalog
 
     public static IReadOnlyList<TtsVoiceOption> Voices { get; } = new[]
     {
-        new TtsVoiceOption(45, "女声 zf_078（默认）", "Kokoro v1.1 中文女声，Speaker ID 45；建议试听后选择。"),
-        new TtsVoiceOption(3, "女声 zf_001", "Kokoro v1.1 中文女声，Speaker ID 3。"),
-        new TtsVoiceOption(15, "女声 zf_022", "Kokoro v1.1 中文女声，Speaker ID 15。"),
-        new TtsVoiceOption(30, "女声 zf_047", "Kokoro v1.1 中文女声，Speaker ID 30。"),
-        new TtsVoiceOption(58, "男声 zm_009", "Kokoro v1.1 中文男声，Speaker ID 58。"),
-        new TtsVoiceOption(70, "男声 zm_031", "Kokoro v1.1 中文男声，Speaker ID 70。"),
-        new TtsVoiceOption(85, "男声 zm_061", "Kokoro v1.1 中文男声，Speaker ID 85。"),
-        new TtsVoiceOption(100, "男声 zm_097", "Kokoro v1.1 中文男声，Speaker ID 100。")
+        new TtsVoiceOption(45),
+        new TtsVoiceOption(3),
+        new TtsVoiceOption(15),
+        new TtsVoiceOption(30),
+        new TtsVoiceOption(58),
+        new TtsVoiceOption(70),
+        new TtsVoiceOption(85),
+        new TtsVoiceOption(100)
     };
 
     public static string ModelsDirectory => Path.Combine(NcfService.AppDataPath, "TtsModels");
@@ -92,7 +88,7 @@ internal static class TtsModelCatalog
             return new TtsModelReadiness(
                 TtsModelReadinessState.NotSelected,
                 string.Empty,
-                "尚未选择朗读模型。请先在“工作台设置 → 本地语音输出”中选择模型。");
+                LocalizationService.T("Tts.Ready.NotSelected"));
         }
 
         var directory = GetModelDirectory(option, customPath);
@@ -102,8 +98,8 @@ internal static class TtsModelCatalog
                 TtsModelReadinessState.Missing,
                 directory,
                 option.CanDownload
-                    ? $"{option.DisplayName} 尚未下载，请点击“下载所选模型”。"
-                    : "所选本地模型目录不存在，请重新选择。");
+                    ? LocalizationService.T("Tts.Ready.NotDownloaded", option.DisplayName)
+                    : LocalizationService.T("Tts.Ready.NoCustomDirectory"));
         }
 
         return EvaluateDirectory(directory);
@@ -119,7 +115,7 @@ internal static class TtsModelCatalog
                 return new TtsModelReadiness(
                     TtsModelReadinessState.Incomplete,
                     directory,
-                    "模型目录不完整，需要 ONNX、voices.bin、tokens.txt、词典和 espeak-ng-data。");
+                    LocalizationService.T("Tts.Ready.Incomplete"));
             }
 
             var modelLength = new FileInfo(files.Model).Length;
@@ -129,13 +125,13 @@ internal static class TtsModelCatalog
                 return new TtsModelReadiness(
                     TtsModelReadinessState.Incomplete,
                     directory,
-                    "模型文件体积异常，可能下载或解压不完整。");
+                    LocalizationService.T("Tts.Ready.SizeAbnormal"));
             }
 
             return new TtsModelReadiness(
                 TtsModelReadinessState.Ready,
                 files.RootDirectory,
-                $"朗读模型已就绪（核心模型 {VoiceModelCatalog.FormatBytes(modelLength)}）。",
+                LocalizationService.T("Tts.Ready.Ready", VoiceModelCatalog.FormatBytes(modelLength)),
                 files);
         }
         catch (Exception ex)
@@ -143,7 +139,7 @@ internal static class TtsModelCatalog
             return new TtsModelReadiness(
                 TtsModelReadinessState.Incomplete,
                 directory,
-                $"无法检查朗读模型：{ex.Message}");
+                LocalizationService.T("Tts.Ready.CheckFailed", ex.Message));
         }
     }
 

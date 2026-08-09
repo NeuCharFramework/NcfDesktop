@@ -8,6 +8,8 @@
     创建标识：Senparc - 20260725
 
 ----------------------------------------------------------------*/
+using NcfDesktopApp.GUI.Services;
+
 namespace NcfDesktopApp.GUI.Models;
 
 /// <summary>
@@ -41,11 +43,11 @@ public sealed record NcfLaunchTarget(
 
     public string KindDisplayName => Kind switch
     {
-        NcfLaunchTargetKind.ManagedPublished => "内置托管版本",
-        NcfLaunchTargetKind.ExternalPublished => "外部发布目录",
-        NcfLaunchTargetKind.SourceProject => "源码工作区",
-        NcfLaunchTargetKind.RemoteSite => "远程 NCF 站点",
-        _ => "NCF 目标"
+        NcfLaunchTargetKind.ManagedPublished => LocalizationService.T("Target.ManagedPublished"),
+        NcfLaunchTargetKind.ExternalPublished => LocalizationService.T("Target.ExternalPublished"),
+        NcfLaunchTargetKind.SourceProject => LocalizationService.T("Target.SourceProject"),
+        NcfLaunchTargetKind.RemoteSite => LocalizationService.T("Target.RemoteNcf"),
+        _ => LocalizationService.T("Target.Generic")
     };
 }
 

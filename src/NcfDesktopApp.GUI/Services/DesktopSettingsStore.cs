@@ -115,6 +115,7 @@ public static class DesktopSettingsStore
                 AutoOpenBrowser = settings.AutoOpenBrowser,
                 AutoCleanDownloads = settings.AutoCleanDownloads,
                 ShowDetailedInfo = settings.ShowDetailedInfo,
+                UiLanguage = LocalizationService.NormalizeLanguage(settings.UiLanguage),
                 StartPort = startPort,
                 EndPort = endPort,
                 LaunchTargetKind = settings.LaunchTargetKind,

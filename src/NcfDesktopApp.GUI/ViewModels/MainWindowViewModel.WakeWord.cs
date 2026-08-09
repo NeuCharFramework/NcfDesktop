@@ -61,6 +61,8 @@ public partial class MainWindowViewModel
     public string WakePhraseText =>
         $"“{WakeWordModelCatalog.WakePhraseDisplay}”（读作“{WakeWordModelCatalog.WakePhrasePronunciation}”）";
 
+    public string WakePhraseLabel => LocalizationService.T("Settings.WakePhrase", WakePhraseText);
+
     public string WakeWordStatusColor => IsWakeWordListening
         ? "#16A34A"
         : WakeWordEnabled && !IsWakeWordModelReady

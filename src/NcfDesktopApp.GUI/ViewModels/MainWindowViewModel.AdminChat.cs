@@ -67,6 +67,7 @@ public partial class MainWindowViewModel
     private int _streamingGeneration;
     private int _streamingChunkFlushScheduled;
     private readonly Dictionary<int, int> _adminChatSessionModelIds = new();
+    private int _adminChatSessionMutationInProgress;
     private int _adminWebHandoffInProgress;
     private CancellationTokenSource? _adminWebHandoffCancellation;
     private bool _suppressAdminWebHandoffUntilWebLogin;
@@ -176,7 +177,9 @@ public partial class MainWindowViewModel
         SelectedAdminChatAiModel = AdminChatAiModelOptions.FirstOrDefault(model => model.Id == modelId) ??
                                    AdminChatAiModelOptions.FirstOrDefault();
 
-        if (value != null && IsAdminChatActive)
+        // 删除/刷新期间由显式流程负责读取会话详情。这里不再启动一个无法取消的
+        // 后台读取，避免删除后的旧 session detail 响应覆盖新状态。
+        if (value != null && IsAdminChatActive && Volatile.Read(ref _adminChatSessionMutationInProgress) == 0)
         {
             _ = LoadAdminChatSessionAsync(value.Id);
         }
@@ -504,6 +507,7 @@ public partial class MainWindowViewModel
     private async Task NewAdminChatSession()
     {
         IsAdminChatBusy = true;
+        Interlocked.Increment(ref _adminChatSessionMutationInProgress);
         try
         {
             var sessionId = await _adminChatClient.CreateSessionAsync(
@@ -521,6 +525,7 @@ public partial class MainWindowViewModel
         }
         finally
         {
+            Interlocked.Decrement(ref _adminChatSessionMutationInProgress);
             IsAdminChatBusy = false;
         }
     }
@@ -535,16 +540,17 @@ public partial class MainWindowViewModel
         }
 
         var confirmed = await ShowConfirmDialogAsync(
-            "删除聊天会话",
-            $"确定删除“{session.DisplayName}”吗？\n\n该会话会从活动记录中移除，此操作无法在 GUI 中撤销。",
-            "删除会话",
-            "取消");
+            LocalizationService.T("Chat.DeleteSessionTitle"),
+            LocalizationService.T("Chat.DeleteSessionConfirm", session.DisplayName),
+            LocalizationService.T("Chat.DeleteSessionAction"),
+            LocalizationService.T("Action.Cancel"));
         if (!confirmed)
         {
             return;
         }
 
         IsAdminChatBusy = true;
+        Interlocked.Increment(ref _adminChatSessionMutationInProgress);
         try
         {
             await _adminChatClient.DeleteSessionAsync(
@@ -554,7 +560,7 @@ public partial class MainWindowViewModel
             _adminChatSessionModelIds.Remove(session.Id);
             SelectedAdminChatSession = null;
             await RefreshAdminChatSessionsAsync(loadSelectedMessages: true);
-            AdminChatStatusText = "聊天会话已删除。";
+            AdminChatStatusText = LocalizationService.T("Chat.SessionDeleted");
         }
         catch (AdminChatApiException ex)
         {
@@ -562,6 +568,7 @@ public partial class MainWindowViewModel
         }
         finally
         {
+            Interlocked.Decrement(ref _adminChatSessionMutationInProgress);
             IsAdminChatBusy = false;
         }
     }
@@ -585,6 +592,7 @@ public partial class MainWindowViewModel
         }
 
         IsAdminChatBusy = true;
+        Interlocked.Increment(ref _adminChatSessionMutationInProgress);
         try
         {
             await _adminChatClient.SetModulesForSessionAsync(
@@ -601,6 +609,7 @@ public partial class MainWindowViewModel
         }
         finally
         {
+            Interlocked.Decrement(ref _adminChatSessionMutationInProgress);
             IsAdminChatBusy = false;
         }
     }
@@ -716,10 +725,13 @@ public partial class MainWindowViewModel
         }
 
         var confirmed = await ShowConfirmDialogAsync(
-            "删除聊天消息",
-            $"确定删除这条{(message.IsUser ? "用户" : "Agent")}消息吗？\n\n{preview}",
-            "删除消息",
-            "取消");
+            LocalizationService.T("Chat.DeleteMessageTitle"),
+            LocalizationService.T(
+                "Chat.DeleteMessageConfirm",
+                message.IsUser ? LocalizationService.T("Chat.RoleUser") : LocalizationService.T("Chat.RoleAgent"),
+                preview),
+            LocalizationService.T("Chat.DeleteMessageAction"),
+            LocalizationService.T("Action.Cancel"));
         if (!confirmed)
         {
             return;
@@ -1020,13 +1032,20 @@ public partial class MainWindowViewModel
     private void OnDesktopAuthorizedSyncReceived(DesktopAuthorizedSyncMessage message)
     {
         if (!string.Equals(message.Channel, "admin-chat", StringComparison.OrdinalIgnoreCase) ||
-            !IsAdminChatActive)
+            !IsAdminChatActive ||
+            Volatile.Read(ref _adminChatSessionMutationInProgress) != 0)
         {
             return;
         }
 
         Dispatcher.UIThread.Post(async () =>
         {
+            if (!IsAdminChatActive ||
+                Volatile.Read(ref _adminChatSessionMutationInProgress) != 0)
+            {
+                return;
+            }
+
             try
             {
                 var sessionId = int.TryParse(message.ResourceId, out var parsed) ? parsed : (int?)null;
@@ -1042,13 +1061,56 @@ public partial class MainWindowViewModel
         });
     }
 
-    private void OnDesktopAuthorizedSyncAuthorizationFailed(string message)
+    private void OnDesktopAuthorizedSyncAuthorizationFailed(string message, string accessToken)
     {
         Dispatcher.UIThread.Post(async () =>
         {
+            // StartAuthorizedSyncAsync 会替换旧的 SSE 连接。旧连接可能在取消后才把
+            // 401/403 通知送达；它不能注销已经使用新 JWT 完成的登录。
+            if (!IsAdminAuthenticated ||
+                Volatile.Read(ref _adminChatSessionMutationInProgress) != 0 ||
+                !string.Equals(_adminChatClient.Authentication?.AccessToken, accessToken, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            await _desktopBridgeClient.StopAuthorizedSyncAsync();
+
+            // SSE 授权失败并不一定代表 AdminChat JWT 失效（例如旧 DesktopBridge、
+            // 代理短暂拒绝或同步端点不兼容）。只有业务 API 也确认 401/403 时才退回登录。
+            try
+            {
+                await _adminChatClient.GetSessionsAsync(
+                    SiteUrl,
+                    _cancellationTokenSource?.Token ?? CancellationToken.None);
+                AdminChatStatusText = $"{message} AdminChat 登录仍有效，已保留当前会话。";
+                AddLog($"⚠️ {message}；AdminChat API 验证仍成功，未清除登录状态。");
+                return;
+            }
+            catch (AdminChatApiException ex) when (!ex.IsAuthenticationFailure)
+            {
+                AdminChatStatusText = $"{message} AdminChat 仍可用，但实时同步暂时不可用。";
+                AddLog($"⚠️ {message}；AdminChat API 可用但同步暂时中断: {ex.Message}");
+                return;
+            }
+            catch (AdminChatApiException)
+            {
+                // 业务 API 明确返回 401/403，继续执行下面的安全注销。
+            }
+            catch (OperationCanceledException)
+            {
+                // 站点正在停止或工作区正在关闭，不改变当前界面状态。
+                return;
+            }
+            catch (Exception ex)
+            {
+                AdminChatStatusText = $"{message} AdminChat 仍保持登录，但同步验证暂时失败。";
+                AddLog($"⚠️ {message}；验证当前登录状态时发生异常: {ex.Message}");
+                return;
+            }
+
             StopAgentPortalSynchronization();
             StopNeuBellSynchronization();
-            await _desktopBridgeClient.StopAuthorizedSyncAsync();
             _adminChatClient.ClearAuthentication();
             IsAdminAuthenticated = false;
             AdminChatSessions.Clear();
@@ -1068,6 +1130,7 @@ public partial class MainWindowViewModel
             return;
         }
 
+        AddLog($"🔒 Admin Chat 鉴权已失效，已返回登录界面: {ex.Message}");
         _adminChatClient.ClearAuthentication();
         StopAgentPortalSynchronization();
         StopNeuBellSynchronization();

@@ -1,9 +1,10 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:NcfDesktopApp.GUI.ViewModels"
+        xmlns:loc="using:NcfDesktopApp.GUI.Markup"
         x:Class="NcfDesktopApp.GUI.Views.TemplateWorkspaceWindow"
         x:DataType="vm:MainWindowViewModel"
-        Title="从模板新建 NCF 工作区"
+        Title="{loc:Loc Template.WindowTitle}"
         Width="680" Height="650"
         MinWidth="540" MinHeight="500"
         WindowStartupLocation="CenterOwner"
@@ -19,8 +20,8 @@
                 BorderThickness="0,0,0,1"
                 Padding="22,16">
             <StackPanel Spacing="3">
-                <TextBlock Text="从官方模板新建工作区" FontSize="20" FontWeight="SemiBold"/>
-                <TextBlock Text="创建完成后自动切换到新的外部源码目标。"
+                <TextBlock Text="{loc:Loc Template.Title}" FontSize="20" FontWeight="SemiBold"/>
+                <TextBlock Text="{loc:Loc Template.Subtitle}"
                            FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"/>
             </StackPanel>
         </Border>
@@ -37,46 +38,46 @@
                         BorderThickness="1"
                         CornerRadius="8"
                         Padding="14">
-                    <TextBlock Text="桌面端会在线安装最新 Senparc.NCF.Template，再创建不触发 dotnet restore 的源码目录。现有非空目录不会被覆盖。"
+                    <TextBlock Text="{loc:Loc Template.Intro}"
                                FontSize="11" TextWrapping="Wrap" LineHeight="17"/>
                 </Border>
 
                 <StackPanel Spacing="7">
-                    <TextBlock Text="父目录" Classes="field-label"/>
+                    <TextBlock Text="{loc:Loc Template.ParentDirectory}" Classes="field-label"/>
                     <Grid ColumnDefinitions="*,Auto">
                         <TextBox Grid.Column="0"
                                  Text="{Binding TemplateWorkspaceParentPath, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                 Watermark="工作区父目录"
+                                 Watermark="{loc:Loc Template.ParentWatermark}"
                                  FontFamily="Consolas,Menlo,Monaco,Courier New"
                                  Margin="0,0,8,0"
                                  IsEnabled="{Binding IsTargetSelectionEnabled}"/>
-                        <Button Grid.Column="1" Content="选择目录"
+                        <Button Grid.Column="1" Content="{loc:Loc Template.SelectDirectory}"
                                 Command="{Binding SelectTemplateWorkspaceParentCommand}"
                                 Classes="secondary-action"/>
                     </Grid>
                 </StackPanel>
 
                 <StackPanel Spacing="7">
-                    <TextBlock Text="工作区名称" Classes="field-label"/>
+                    <TextBlock Text="{loc:Loc Template.WorkspaceName}" Classes="field-label"/>
                     <TextBox Text="{Binding TemplateWorkspaceName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                             Watermark="例如 MyNcfWorkspace"
+                             Watermark="{loc:Loc Template.NameWatermark}"
                              IsEnabled="{Binding IsTargetSelectionEnabled}"/>
                 </StackPanel>
 
                 <StackPanel Spacing="9">
-                    <TextBlock Text="初始配置" Classes="field-label"/>
+                    <TextBlock Text="{loc:Loc Template.InitialConfig}" Classes="field-label"/>
                     <Border Background="{DynamicResource ToolbarBackgroundBrush}"
                             BorderBrush="{DynamicResource CardBorderBrush}"
                             BorderThickness="1"
                             CornerRadius="7"
                             Padding="12">
                         <StackPanel Spacing="10">
-                            <RadioButton Content="使用模板默认配置"
+                            <RadioButton Content="{loc:Loc Template.UseDefault}"
                                          GroupName="TemplateConfigurationSource"
                                          IsChecked="{Binding UsesTemplateDefaultConfiguration, Mode=TwoWay}"
                                          IsEnabled="{Binding IsTargetSelectionEnabled}"/>
                             <StackPanel Spacing="3">
-                                <RadioButton Content="复制当前托管版本的配置"
+                                <RadioButton Content="{loc:Loc Template.CopyManaged}"
                                              GroupName="TemplateConfigurationSource"
                                              IsChecked="{Binding UsesManagedRuntimeConfiguration, Mode=TwoWay}"
                                              IsEnabled="{Binding IsTargetSelectionEnabled}"/>
@@ -87,7 +88,7 @@
                                                      TextWrapping="Wrap"/>
                             </StackPanel>
                             <StackPanel Spacing="7">
-                                <RadioButton Content="复制其他 NCF 工作区的配置"
+                                <RadioButton Content="{loc:Loc Template.CopyOther}"
                                              GroupName="TemplateConfigurationSource"
                                              IsChecked="{Binding UsesOtherWorkspaceConfiguration, Mode=TwoWay}"
                                              IsEnabled="{Binding IsTargetSelectionEnabled}"/>
@@ -96,17 +97,17 @@
                                       IsVisible="{Binding UsesOtherWorkspaceConfiguration}">
                                     <TextBox Grid.Column="0"
                                              Text="{Binding TemplateWorkspaceConfigurationSourcePath, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                             Watermark="NCF 发布目录或源码工作区"
+                                             Watermark="{loc:Loc Template.SourceWatermark}"
                                              FontFamily="Consolas,Menlo,Monaco,Courier New"
                                              Margin="0,0,8,0"
                                              IsEnabled="{Binding IsTargetSelectionEnabled}"/>
                                     <Button Grid.Column="1"
-                                            Content="选择工作区"
+                                            Content="{loc:Loc Template.SelectWorkspace}"
                                             Command="{Binding SelectTemplateWorkspaceConfigurationSourceCommand}"
                                             Classes="secondary-action"/>
                                 </Grid>
                             </StackPanel>
-                            <TextBlock Text="将复制 appsettings.json、App_Data/Database/SenparcConfig.config，以及来源中存在的 web.config。配置可能包含连接字符串或密钥。"
+                            <TextBlock Text="{loc:Loc Template.ConfigCopyHint}"
                                        Margin="26,0,0,0"
                                        FontSize="10.5"
                                        Foreground="{DynamicResource SecondaryTextBrush}"
@@ -137,13 +138,13 @@
                 Padding="20,12">
             <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
                 <TextBlock Grid.Column="0"
-                           Text="需要联网访问 NuGet.org"
+                           Text="{loc:Loc Template.NeedNetwork}"
                            FontSize="10.5"
                            Foreground="{DynamicResource SecondaryTextBrush}"
                            VerticalAlignment="Center"/>
-                <Button Grid.Column="1" Content="关闭" Click="CloseButton_OnClick"
+                <Button Grid.Column="1" Content="{loc:Loc Action.Close}" Click="CloseButton_OnClick"
                         Classes="secondary-action"/>
-                <Button Grid.Column="2" Content="创建工作区"
+                <Button Grid.Column="2" Content="{loc:Loc Template.CreateWorkspace}"
                         Command="{Binding CreateWorkspaceFromTemplateCommand}"
                         Classes="primary-action"/>
             </Grid>

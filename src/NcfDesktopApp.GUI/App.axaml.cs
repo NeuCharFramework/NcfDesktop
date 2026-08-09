@@ -66,8 +66,10 @@ public partial class App : Application
             };
 
             DisableAvaloniaDataAnnotationValidation();
+            var desktopSettings = DesktopSettingsStore.Load();
+            LocalizationService.Instance.Initialize(desktopSettings.UiLanguage);
             _robotLayoutMode = DesktopRobotLayoutModePolicy.Normalize(
-                DesktopSettingsStore.Load().DesktopRobotLayoutMode);
+                desktopSettings.DesktopRobotLayoutMode);
 
             _shell = new WorkspaceShellViewModel();
             _mainWindow = new MainWindow
@@ -355,8 +357,8 @@ public partial class App : Application
             {
                 var confirmed = await workspace.Workspace
                     .ConfirmCloseAsync(
-                        $"关闭 {workspace.Title}",
-                        $"{workspace.Title} 中的 NCF 正在运行。\n关闭此标签将停止对应 NCF 进程和宠物，其他工作区不受影响。\n是否继续？")
+                        LocalizationService.T("Shell.CloseConfirmTitle", workspace.Title),
+                        LocalizationService.T("Shell.CloseConfirmMessage", workspace.Title))
                     .ConfigureAwait(true);
                 if (!confirmed)
                 {

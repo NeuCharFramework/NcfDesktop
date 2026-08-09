@@ -14,6 +14,7 @@ public sealed class VoiceModelCatalogTests
     {
         _testRoot = Path.Combine(Path.GetTempPath(), "ncf-voice-model-tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_testRoot);
+        LocalizationService.Instance.Initialize("zh");
     }
 
     [TestCleanup]
@@ -79,9 +80,6 @@ public sealed class VoiceModelCatalogTests
     {
         var model = new VoiceModelOption(
             VoiceModelCatalog.CustomModelId,
-            "测试模型",
-            "测试用途",
-            "16 bytes",
             LocalVoiceModelKind.Custom,
             string.Empty,
             16,

@@ -1,10 +1,11 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:NcfDesktopApp.GUI.ViewModels"
+        xmlns:loc="using:NcfDesktopApp.GUI.Markup"
         xmlns:controls="using:NcfDesktopApp.GUI.Views.Controls"
         x:Class="NcfDesktopApp.GUI.Views.DesktopRobotWindow"
         x:DataType="vm:DesktopRobotViewModel"
-        Title="NCF 桌面助手"
+        Title="{loc:Loc Robot.WindowTitle}"
         Width="174"
         Height="154"
         MinWidth="0"
@@ -27,29 +28,29 @@
           PointerMoved="RootBorder_OnPointerMoved">
         <Canvas.ContextMenu>
             <ContextMenu>
-                <MenuItem Header="AdminChat 语音输入"
+                <MenuItem Header="{loc:Loc Robot.VoiceInput}"
                           Click="VoiceInputMenuItem_OnClick"/>
-                <MenuItem Header="Agents 空间透视"
+                <MenuItem Header="{loc:Loc Robot.AgentPortal}"
                           IsEnabled="{Binding IsAgentPortalAvailable}"
                           Click="AgentPortalMenuItem_OnClick"/>
-                <MenuItem Header="打开纽铃提醒"
+                <MenuItem Header="{loc:Loc Robot.OpenNeuBell}"
                           IsEnabled="{Binding HasNeuBellNotifications}"
                           ToolTip.Tip="{Binding NeuBellSummary}"
                           Click="NeuBellMenuItem_OnClick"/>
                 <Separator/>
-                <MenuItem Header="自动跟随工作状态"
+                <MenuItem Header="{loc:Loc Robot.FollowWorkState}"
                           Click="MascotAutoMenuItem_OnClick"/>
                 <Separator/>
-                <MenuItem Header="Nono · 默认助手"
+                <MenuItem Header="{loc:Loc Robot.MascotNono}"
                           Tag="Nono"
                           Click="MascotMenuItem_OnClick"/>
-                <MenuItem Header="Cici · Agent / Chat"
+                <MenuItem Header="{loc:Loc Robot.MascotCici}"
                           Tag="Cici"
                           Click="MascotMenuItem_OnClick"/>
-                <MenuItem Header="Qiao · Bridge / EventBus"
+                <MenuItem Header="{loc:Loc Robot.MascotQiao}"
                           Tag="Qiao"
                           Click="MascotMenuItem_OnClick"/>
-                <MenuItem Header="Opsi · 构建 / 错误"
+                <MenuItem Header="{loc:Loc Robot.MascotOpsi}"
                           Tag="Opsi"
                           Click="MascotMenuItem_OnClick"/>
             </ContextMenu>
@@ -106,7 +107,7 @@
                             CornerRadius="8"
                             HorizontalContentAlignment="Center"
                             VerticalContentAlignment="Center"
-                            ToolTip.Tip="开始或停止 AdminChat 语音输入"
+                            ToolTip.Tip="{loc:Loc Robot.VoiceTip}"
                             Click="VoiceInputButton_OnClick">
                         <Viewbox Width="17" Height="17" IsHitTestVisible="False">
                             <Canvas Width="16" Height="16">
@@ -130,7 +131,7 @@
                             ToolTip.Tip="{Binding AgentPortalStatusText}"
                             Click="AgentPortalButton_OnClick"/>
                     <Button Grid.Column="3"
-                            Content="打开 NCF"
+                            Content="{loc:Loc Robot.OpenNcf}"
                             FontSize="10"
                             Padding="10,4"
                             Background="#007ACC"
@@ -176,7 +177,7 @@
                 Background="#E8E8E8"
                 HorizontalContentAlignment="Center"
                 VerticalContentAlignment="Center"
-                ToolTip.Tip="隐藏桌面助手"
+                ToolTip.Tip="{loc:Loc Robot.HideTip}"
                 Click="HideButton_OnClick">
             <Path Width="10"
                   Height="10"
@@ -196,7 +197,7 @@
               PointerPressed="RootBorder_OnPointerPressed"
               PointerWheelChanged="MascotSurface_OnPointerWheelChanged"
               DoubleTapped="MascotSurface_OnDoubleTapped"
-              ToolTip.Tip="双击启动或停止 AdminChat 语音输入；可在设置中允许滚轮缩放">
+              ToolTip.Tip="{loc:Loc Robot.MascotTip}">
             <controls:AudioGlowRingView Mode="{Binding AudioVisualizationMode}"
                                         Level="{Binding AudioVisualizationLevel}"
                                         Bands="{Binding AudioVisualizationBands}"

@@ -17,6 +17,7 @@ public sealed class TtsModelCatalogTests
     {
         _testRoot = Path.Combine(Path.GetTempPath(), "ncf-tts-model-tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_testRoot);
+        LocalizationService.Instance.Initialize("zh");
     }
 
     [TestCleanup]

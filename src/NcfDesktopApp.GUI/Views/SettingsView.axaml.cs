@@ -154,7 +154,7 @@ public partial class SettingsView : UserControl
         }
         catch (Exception ex)
         {
-            viewModel.TtsPlaybackStatusText = $"朗读失败：{ex.Message}";
+            viewModel.TtsPlaybackStatusText = Services.LocalizationService.T("Update.SpeechFailed", ex.Message);
         }
     }
 
@@ -172,7 +172,7 @@ public partial class SettingsView : UserControl
         }
         catch (Exception ex)
         {
-            viewModel.AdminChatStatusText = $"删除消息失败：{ex.Message}";
+            viewModel.AdminChatStatusText = Services.LocalizationService.T("Update.DeleteMessageFailed", ex.Message);
         }
     }
     

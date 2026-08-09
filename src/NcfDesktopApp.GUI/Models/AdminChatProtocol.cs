@@ -10,6 +10,7 @@
 using System;
 using System.Collections.Generic;
 using CommunityToolkit.Mvvm.ComponentModel;
+using NcfDesktopApp.GUI.Services;
 
 namespace NcfDesktopApp.GUI.Models;
 
@@ -23,7 +24,9 @@ public sealed record AdminChatSessionSummary(
     string Title,
     DateTime LastMessageTime)
 {
-    public string DisplayName => string.IsNullOrWhiteSpace(Title) ? $"会话 {Id}" : Title;
+    public string DisplayName => string.IsNullOrWhiteSpace(Title)
+        ? LocalizationService.T("Chat.SessionFallback", Id)
+        : Title;
 }
 
 public sealed record AdminChatMessage(
@@ -39,7 +42,7 @@ public sealed record AdminChatMessage(
 
     public bool IsAgent => !IsUser;
 
-    public string SenderName => IsUser ? "我" : "NCF Agent";
+    public string SenderName => IsUser ? LocalizationService.T("Chat.SenderMe") : "NCF Agent";
 
     public string SenderColor => IsUser ? "#2563EB" : "#7C3AED";
 
@@ -54,7 +57,9 @@ public sealed record AdminChatAiModelOption(
     string Description,
     bool IsDefault)
 {
-    public string DisplayName => string.IsNullOrWhiteSpace(Name) ? $"模型 {Id}" : Name;
+    public string DisplayName => string.IsNullOrWhiteSpace(Name)
+        ? LocalizationService.T("Chat.ModelFallback", Id)
+        : Name;
 }
 
 public sealed record AdminChatAvailableModule(

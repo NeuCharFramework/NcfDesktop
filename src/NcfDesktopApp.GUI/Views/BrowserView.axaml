@@ -3,6 +3,7 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:vm="using:NcfDesktopApp.GUI.ViewModels"
+        xmlns:loc="using:NcfDesktopApp.GUI.Markup"
              xmlns:controls="using:NcfDesktopApp.GUI.Views.Controls"
              mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
              x:Class="NcfDesktopApp.GUI.Views.BrowserView"
@@ -24,7 +25,7 @@
                         Content="↻"
                         Width="30" Height="30"
                         FontSize="16" FontWeight="Bold"
-                        ToolTip.Tip="刷新当前页面"
+                        ToolTip.Tip="{loc:Loc Browser.RefreshTip}"
                         Click="RefreshButton_Click"/>
                 
                 <!-- 运行站点地址仅用于识别当前页面，站内导航由 WebView 自身处理。 -->
@@ -44,7 +45,7 @@
                              Background="Transparent"
                              Padding="8,5"
                              IsReadOnly="True"
-                             ToolTip.Tip="当前页面地址"/>
+                             ToolTip.Tip="{loc:Loc Browser.UrlTip}"/>
                 </Border>
                 
                 <TextBlock Grid.Column="2"
@@ -59,7 +60,7 @@
                         Content="↗"
                         Width="30" Height="30"
                         FontSize="15"
-                        ToolTip.Tip="在外部浏览器中打开"
+                        ToolTip.Tip="{loc:Loc Browser.OpenExternalTip}"
                         Margin="0,0,5,0"
                         Command="{Binding OpenInExternalBrowserCommand}"/>
                 
@@ -67,7 +68,7 @@
                         Content="⚙" 
                         Width="30" Height="30" 
                         FontSize="16"
-                        ToolTip.Tip="返回工作台"
+                        ToolTip.Tip="{loc:Loc Browser.BackToWorkspaceTip}"
                         Command="{Binding SwitchToSettingsCommand}"/>
             </Grid>
         </Border>
@@ -88,7 +89,7 @@
                         <TextBlock Text="🌐" 
                                    FontSize="48" 
                                    HorizontalAlignment="Center"/>
-                        <TextBlock Text="正在准备浏览器..." 
+                        <TextBlock Text="{loc:Loc Browser.Preparing}" 
                                    FontSize="16" 
                                    HorizontalAlignment="Center" 
                                    Foreground="{DynamicResource SecondaryTextBrush}"/>
@@ -116,7 +117,7 @@
                         <TextBlock Text="⚠️" 
                                    FontSize="48" 
                                    HorizontalAlignment="Center"/>
-                        <TextBlock Text="浏览器加载失败" 
+                        <TextBlock Text="{loc:Loc Browser.LoadFailed}" 
                                    FontSize="18" 
                                    FontWeight="SemiBold"
                                    HorizontalAlignment="Center" 
@@ -127,7 +128,7 @@
                                    Foreground="{DynamicResource SecondaryTextBrush}"
                                    TextWrapping="Wrap"
                                    MaxWidth="400"/>
-                        <Button Content="重试" 
+                        <Button Content="{loc:Loc Action.Retry}" 
                                 Command="{Binding RetryBrowserCommand}"
                                 HorizontalAlignment="Center"
                                 Padding="20,8"/>

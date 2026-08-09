@@ -32,6 +32,11 @@ public sealed class DesktopUserSettings
 
     public bool ShowDetailedInfo { get; set; } = true;
 
+    /// <summary>
+    /// 界面语言：zh 或 en。默认中文。
+    /// </summary>
+    public string UiLanguage { get; set; } = "zh";
+
     public int StartPort { get; set; } = 5000;
 
     public int EndPort { get; set; } = 5300;

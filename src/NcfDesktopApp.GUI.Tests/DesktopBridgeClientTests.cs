@@ -338,6 +338,28 @@ public sealed class DesktopBridgeClientTests
     }
 
     [TestMethod]
+    public async Task AuthorizedSyncAuthorizationFailed_ReportsTheTokenUsedByTheFailedStream()
+    {
+        await using var client = CreateClient(_ => new HttpResponseMessage(HttpStatusCode.Unauthorized));
+        var failure = new TaskCompletionSource<(string Message, string AccessToken)>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        client.AuthorizedSyncAuthorizationFailed += (message, accessToken) =>
+            failure.TrySetResult((message, accessToken));
+
+        await client.StartAuthorizedSyncAsync(
+            SiteUrl,
+            Token,
+            "admin-jwt",
+            "/api/Senparc.Xncf.DesktopBridge/authorized-sync/events");
+
+        var result = await failure.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        await client.StopAuthorizedSyncAsync();
+
+        Assert.AreEqual("admin-jwt", result.AccessToken);
+        StringAssert.Contains(result.Message, "管理员登录");
+    }
+
+    [TestMethod]
     public async Task CreateAdminAuthHandoffAsync_SendsDesktopTokenAndChallengeButNotVerifier()
     {
         string? body = null;

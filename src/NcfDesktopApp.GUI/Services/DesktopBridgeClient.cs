@@ -61,7 +61,11 @@ public sealed class DesktopBridgeClient : IAsyncDisposable
 
     public event Action<DesktopAuthorizedSyncMessage>? AuthorizedSyncReceived;
 
-    public event Action<string>? AuthorizedSyncAuthorizationFailed;
+    /// <summary>
+    /// 传回授权同步失败时实际使用的 JWT。GUI 用它区分旧连接的迟到通知，避免旧连接
+    /// 在重新登录后清空新登录状态。
+    /// </summary>
+    public event Action<string, string>? AuthorizedSyncAuthorizationFailed;
 
     public event Action<string>? SessionRevoked;
 
@@ -837,7 +841,7 @@ public sealed class DesktopBridgeClient : IAsyncDisposable
         {
             if (!SiteEndpointPolicy.TryCreateEndpoint(siteUrl, eventPath, out var endpoint, out _))
             {
-                NotifyAuthorizedSyncAuthorizationFailed("DesktopBridge 返回了无效的授权同步地址。");
+                NotifyAuthorizedSyncAuthorizationFailed("DesktopBridge 返回了无效的授权同步地址。", accessToken);
                 return;
             }
 
@@ -853,13 +857,13 @@ public sealed class DesktopBridgeClient : IAsyncDisposable
 
                 if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
                 {
-                    NotifyAuthorizedSyncAuthorizationFailed("管理员登录已过期或不具备 AdminOnly 权限。");
+                    NotifyAuthorizedSyncAuthorizationFailed("管理员登录已过期或不具备 AdminOnly 权限。", accessToken);
                     return;
                 }
 
                 if (response.StatusCode == HttpStatusCode.NotFound)
                 {
-                    NotifyAuthorizedSyncAuthorizationFailed("当前 DesktopBridge 版本不支持 Admin Chat 同步，请更新模块。");
+                    NotifyAuthorizedSyncAuthorizationFailed("当前 DesktopBridge 版本不支持 Admin Chat 同步，请更新模块。", accessToken);
                     return;
                 }
 
@@ -1022,13 +1026,13 @@ public sealed class DesktopBridgeClient : IAsyncDisposable
         }
     }
 
-    private void NotifyAuthorizedSyncAuthorizationFailed(string message)
+    private void NotifyAuthorizedSyncAuthorizationFailed(string message, string accessToken)
     {
         foreach (var handler in AuthorizedSyncAuthorizationFailed?.GetInvocationList() ?? Array.Empty<Delegate>())
         {
             try
             {
-                ((Action<string>)handler)(message);
+                ((Action<string, string>)handler)(message, accessToken);
             }
             catch
             {

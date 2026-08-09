@@ -38,17 +38,24 @@ public partial class WorkspaceShellViewModel : ViewModelBase
 
     public bool HasNoWorkspaces => !HasWorkspaces;
 
-    public string WorkspaceCountText => $"{Workspaces.Count} 个工作区";
+    public string WorkspaceCountText => LocalizationService.T("Shell.WorkspaceCount", Workspaces.Count);
 
     public double SidebarWidth => IsSidebarExpanded ? 244 : 76;
 
     public string SidebarToggleGlyph => IsSidebarExpanded ? "‹" : "›";
 
-    public string SidebarTitle => IsSidebarExpanded ? "NCF 工作区" : "NCF";
+    public string SidebarTitle => IsSidebarExpanded
+        ? LocalizationService.T("Shell.SidebarTitle")
+        : LocalizationService.T("Shell.SidebarTitleCompact");
 
     public WorkspaceShellViewModel()
     {
         Workspaces.CollectionChanged += Workspaces_OnCollectionChanged;
+        LocalizationService.Instance.LanguageChanged += (_, _) =>
+        {
+            OnPropertyChanged(nameof(WorkspaceCountText));
+            OnPropertyChanged(nameof(SidebarTitle));
+        };
     }
 
     public void AddWorkspace(WorkspaceTabViewModel workspace, bool select = true)
@@ -106,7 +113,7 @@ public partial class WorkspaceShellViewModel : ViewModelBase
 
 public partial class WorkspaceTabViewModel : ViewModelBase, IDisposable
 {
-    private readonly string _fallbackTitle;
+    private string _fallbackTitle;
     private bool _disposed;
 
     [ObservableProperty]
@@ -138,10 +145,17 @@ public partial class WorkspaceTabViewModel : ViewModelBase, IDisposable
         WorkspaceContentView contentView)
     {
         Number = number;
-        _fallbackTitle = $"工作区 {number}";
+        _fallbackTitle = LocalizationService.T("Shell.WorkspaceFallback", number);
         Workspace = workspace;
         ContentView = contentView;
         Workspace.PropertyChanged += Workspace_OnPropertyChanged;
+        LocalizationService.Instance.LanguageChanged += OnUiLanguageChanged;
+    }
+
+    private void OnUiLanguageChanged(object? sender, EventArgs e)
+    {
+        _fallbackTitle = LocalizationService.T("Shell.WorkspaceFallback", Number);
+        OnPropertyChanged(nameof(Title));
     }
 
     [RelayCommand]
@@ -207,6 +221,7 @@ public partial class WorkspaceTabViewModel : ViewModelBase, IDisposable
         }
 
         _disposed = true;
+        LocalizationService.Instance.LanguageChanged -= OnUiLanguageChanged;
         Workspace.PropertyChanged -= Workspace_OnPropertyChanged;
         ContentView.Dispose();
     }
