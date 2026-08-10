@@ -8,6 +8,7 @@
 ----------------------------------------------------------------*/
 
 using System;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using NcfDesktopApp.GUI.Models;
@@ -19,10 +20,12 @@ public partial class MainWindowViewModel
 {
     private CancellationTokenSource? _agentPortalSyncCancellation;
     private Task? _agentPortalSyncTask;
+    private DateTimeOffset _nextAgentPortalUsageRefreshUtc = DateTimeOffset.MinValue;
 
     private void StartAgentPortalSynchronization()
     {
         StopAgentPortalSynchronization(resetPortal: false);
+        _nextAgentPortalUsageRefreshUtc = DateTimeOffset.MinValue;
         var parentToken = _cancellationTokenSource?.Token ?? CancellationToken.None;
         var cancellation = CancellationTokenSource.CreateLinkedTokenSource(parentToken);
         _agentPortalSyncCancellation = cancellation;
@@ -47,6 +50,7 @@ public partial class MainWindowViewModel
 
         if (resetPortal)
         {
+            _nextAgentPortalUsageRefreshUtc = DateTimeOffset.MinValue;
             Robot.SetAgentPortalUnavailable("等待 AgentsManager 活动");
         }
     }
@@ -63,6 +67,12 @@ public partial class MainWindowViewModel
                     .ConfigureAwait(false);
                 cancellationToken.ThrowIfCancellationRequested();
                 Robot.ApplyAgentGraphSnapshot(snapshot);
+                if (Robot.IsAgentPortalOpen && DateTimeOffset.UtcNow >= _nextAgentPortalUsageRefreshUtc)
+                {
+                    var usage = await TryGetAgentPortalUsageAsync(snapshot, cancellationToken).ConfigureAwait(false);
+                    Robot.ApplyAgentPortalUsage(usage ?? AgentPortalUsageSummary.Unavailable);
+                    _nextAgentPortalUsageRefreshUtc = DateTimeOffset.UtcNow.AddSeconds(15);
+                }
                 consecutiveFailures = 0;
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -97,5 +107,51 @@ public partial class MainWindowViewModel
                 return;
             }
         }
+    }
+
+    /// <summary>
+    /// 门户展开后低频读取至多五个正在执行任务的历史用量聚合。这样既能显示真实 Token/时延，
+    /// 又不会把每两秒的图快照轮询放大为对所有历史任务的扫描。
+    /// </summary>
+    private async Task<AgentPortalUsageSummary?> TryGetAgentPortalUsageAsync(
+        AgentGraphSnapshot snapshot,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var runningTaskCount = GetRunningTaskCount(snapshot);
+            var taskIds = snapshot.Collaborations
+                .Where(item => item.Status == 1 && item.TaskId > 0)
+                .Select(item => item.TaskId)
+                .Distinct()
+                .Take(5)
+                .ToArray();
+            if (runningTaskCount == 0 || taskIds.Length == 0)
+            {
+                return AgentPortalUsageSummary.Create(runningTaskCount, [], DateTimeOffset.UtcNow);
+            }
+
+            var requests = taskIds
+                .Select(taskId => _adminChatClient.GetAgentTaskUsageAnalyticsAsync(SiteUrl, taskId, cancellationToken))
+                .ToArray();
+            var analytics = await Task.WhenAll(requests).ConfigureAwait(false);
+            return AgentPortalUsageSummary.Create(runningTaskCount, analytics, DateTimeOffset.UtcNow);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch
+        {
+            // 用量端点在旧版 AgentsManager 中可能不存在；这不应影响实时工作态门户。
+            return null;
+        }
+    }
+
+    private static int GetRunningTaskCount(AgentGraphSnapshot snapshot)
+    {
+        var reportedTaskCount = snapshot.Groups.Sum(group =>
+            group.TaskStatusCounts.TryGetValue(1, out var runningCount) ? Math.Max(0, runningCount) : 0);
+        return Math.Max(reportedTaskCount, snapshot.Collaborations.Count(item => item.Status == 1));
     }
 }

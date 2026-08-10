@@ -147,6 +147,9 @@
                                   ZIndex="15"
                                   IsOpen="{Binding IsAgentPortalOpen}"
                                   Nodes="{Binding AgentPortalNodes}"
+                                  Snapshot="{Binding AgentPortalSnapshot}"
+                                  RecentCompletions="{Binding AgentPortalRecentCompletions}"
+                                  Usage="{Binding AgentPortalUsage}"
                                   IsHitTestVisible="False"/>
 
         <Button x:Name="PortalReturnButton"

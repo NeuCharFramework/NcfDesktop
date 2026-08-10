@@ -188,7 +188,10 @@
                                     <controls:AgentPortalView Width="58"
                                                               Height="58"
                                                               IsOpen="{Binding Workspace.Robot.IsAgentPortalOpen}"
-                                                              Nodes="{Binding Workspace.Robot.AgentPortalNodes}"/>
+                                                              Nodes="{Binding Workspace.Robot.AgentPortalNodes}"
+                                                              Snapshot="{Binding Workspace.Robot.AgentPortalSnapshot}"
+                                                              RecentCompletions="{Binding Workspace.Robot.AgentPortalRecentCompletions}"
+                                                              Usage="{Binding Workspace.Robot.AgentPortalUsage}"/>
                                     <Button ZIndex="60"
                                             Width="24"
                                             Height="24"

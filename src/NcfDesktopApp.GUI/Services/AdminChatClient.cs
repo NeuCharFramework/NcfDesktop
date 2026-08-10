@@ -32,6 +32,8 @@ public sealed class AdminChatClient
     private const string NeuBellEventsApi = "/api/Senparc.Areas.Admin/neubell/events";
     private const string AgentGraphSnapshotApi =
         "/api/Senparc.Xncf.AgentsManager/ChatGroupAppService/Xncf.AgentsManager_ChatGroupAppService.GetAgentGraphSnapshot";
+    private const string AgentTaskUsageAnalyticsApi =
+        "/api/Senparc.Xncf.AgentsManager/ChatGroupHistoryAppService/Xncf.AgentsManager_ChatGroupHistoryAppService.GetUsageAnalytics";
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         PropertyNameCaseInsensitive = true
@@ -136,6 +138,31 @@ public sealed class AdminChatClient
             siteUrl,
             HttpMethod.Get,
             AgentGraphSnapshotApi,
+            body: null,
+            accessToken: GetRequiredAccessToken(),
+            timeout: TimeSpan.FromSeconds(12),
+            cancellationToken: cancellationToken,
+            clearAuthenticationOnAuthorizationFailure: false);
+    }
+
+    /// <summary>
+    /// 读取单个活动任务的已授权用量摘要。该请求不包含消息正文、提示词或费用推算；
+    /// 门户在展开时低频采样，避免为后台空闲状态额外产生请求。
+    /// </summary>
+    public Task<AgentTaskUsageAnalytics> GetAgentTaskUsageAnalyticsAsync(
+        string siteUrl,
+        int chatTaskId,
+        CancellationToken cancellationToken = default)
+    {
+        if (chatTaskId <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(chatTaskId));
+        }
+
+        return SendAsync<AgentTaskUsageAnalytics>(
+            siteUrl,
+            HttpMethod.Get,
+            $"{AgentTaskUsageAnalyticsApi}?chatTaskId={chatTaskId}",
             body: null,
             accessToken: GetRequiredAccessToken(),
             timeout: TimeSpan.FromSeconds(12),

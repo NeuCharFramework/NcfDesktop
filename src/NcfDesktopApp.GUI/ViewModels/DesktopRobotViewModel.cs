@@ -86,6 +86,16 @@ public partial class DesktopRobotViewModel : ViewModelBase
     private IReadOnlyList<AgentPortalNode> _agentPortalNodes = Array.Empty<AgentPortalNode>();
 
     [ObservableProperty]
+    private AgentGraphSnapshot? _agentPortalSnapshot;
+
+    [ObservableProperty]
+    private IReadOnlyList<AgentPortalRecentCompletion> _agentPortalRecentCompletions =
+        Array.Empty<AgentPortalRecentCompletion>();
+
+    [ObservableProperty]
+    private AgentPortalUsageSummary _agentPortalUsage = AgentPortalUsageSummary.Unavailable;
+
+    [ObservableProperty]
     private int _neuBellCount;
 
     [ObservableProperty]
@@ -97,6 +107,7 @@ public partial class DesktopRobotViewModel : ViewModelBase
     private DispatcherTimer? _interactionTimer;
     private readonly Dictionary<string, AgentPortalNode> _activeAgentPortalNodes =
         new(StringComparer.OrdinalIgnoreCase);
+    private readonly AgentPortalRecentCompletionTracker _agentPortalRecentCompletionTracker = new();
     private NcfMascotKind _resolvedMascot = NcfMascotKind.Nono;
     private NcfMascotKind _mascotOverride = NcfMascotKind.Nono;
     private bool _isMascotOverride;
@@ -178,9 +189,14 @@ public partial class DesktopRobotViewModel : ViewModelBase
             }
 
             AgentPortalNodes = _activeAgentPortalNodes.Values.ToArray();
+            AgentPortalSnapshot = snapshot;
+            AgentPortalRecentCompletions = _agentPortalRecentCompletionTracker.Update(snapshot, now);
             IsAgentPortalAvailable = true;
             var activeCount = AgentPortalNodes.Count(item => item.State == AgentPortalNodeState.Working);
-            AgentPortalStatusText = $"Agents 空间 · {snapshot.Agents.Count} 个 Agent · {activeCount} 个工作中";
+            var runningTaskCount = snapshot.Collaborations.Count(item => item.Status == 1);
+            AgentPortalStatusText = runningTaskCount > 0
+                ? $"Agents 空间 · {snapshot.Agents.Count} 个 Agent · {runningTaskCount} 个协作任务运行中"
+                : $"Agents 空间 · {snapshot.Agents.Count} 个 Agent · {activeCount} 个工作中";
         });
     }
 
@@ -193,6 +209,11 @@ public partial class DesktopRobotViewModel : ViewModelBase
                 ? "未检测到已启用的 AgentsManager"
                 : status;
         });
+    }
+
+    public void ApplyAgentPortalUsage(AgentPortalUsageSummary usage)
+    {
+        RunOnUi(() => AgentPortalUsage = usage ?? AgentPortalUsageSummary.Unavailable);
     }
 
     partial void OnIsAgentPortalOpenChanged(bool value)
@@ -458,7 +479,11 @@ public partial class DesktopRobotViewModel : ViewModelBase
     private void ResetAgentPortal()
     {
         _activeAgentPortalNodes.Clear();
+        _agentPortalRecentCompletionTracker.Reset();
         AgentPortalNodes = Array.Empty<AgentPortalNode>();
+        AgentPortalSnapshot = null;
+        AgentPortalRecentCompletions = Array.Empty<AgentPortalRecentCompletion>();
+        AgentPortalUsage = AgentPortalUsageSummary.Unavailable;
         IsAgentPortalOpen = false;
         IsAgentPortalAvailable = false;
         AgentPortalStatusText = "等待 AgentsManager 活动";

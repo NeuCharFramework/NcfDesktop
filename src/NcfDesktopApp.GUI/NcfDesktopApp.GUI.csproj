@@ -10,11 +10,23 @@
     -->
     <TargetFramework>net8.0</TargetFramework>
     <RuntimeIdentifiers>win-x64;win-arm64;osx-x64;osx-arm64;linux-x64;linux-arm64</RuntimeIdentifiers>
-    <Version>0.9.0</Version>
+    <Version>0.10.0</Version>
     <!-- Azure 发布时注入 Build.BuildId，使“设置”中的版本与下载文件名/Release 标签一致。 -->
     <InformationalVersion Condition="'$(NcfDesktopBuildNumber)' != ''">$(Version)-build$(NcfDesktopBuildNumber)</InformationalVersion>
     <IncludeSourceRevisionInInformationalVersion Condition="'$(NcfDesktopBuildNumber)' != ''">false</IncludeSourceRevisionInInformationalVersion>
     <PackageReleaseNotes>
+      [2026-08-10] v0.10.0 新增唤醒词录音端点检测与自动发送
+      1、新增本地 VoiceEndpointDetector：校准底噪后确认持续人声，约 1.35 秒静音判为讲话结束；无有效讲话约 8 秒超时取消（仅唤醒词录音；手动录音仍需点停）
+      2、唤醒词启动的录音在说完后自动停录、本机 Whisper 转写并始终自动发送；仅发送本次识别文本，不夹带输入框草稿；AdminChat 忙碌时排队待空闲再发
+      3、设置项「STT 自动发送」改为仅控制手动麦克风识别结果；中英文案与 macOS 麦克风用途说明同步更新
+      4、TTS 朗读期间仍可监听唤醒词；检测到唤醒后先停止朗读再开始录音，并支持在回复流式进行中打断后录音
+      5、修正 build-tool 中 macOS .app 脚本路径解析，避免发布流程找错脚本
+      [2026-08-10] v0.9.1 增强生命周期诊断、AdminChat 稳定性与 Agent Portal
+      1、CrashDiagnostic 增加生命周期日志；UI 调度器与未观察任务异常记录后标记已处理，避免外围音频/WebView 故障拖垮主进程
+      2、AdminChat 会话刷新增加并发保护与异常降级；授权同步失败回调不再二次拉会话或停流，降低 macOS 登录后主窗口被打断风险
+      3、macOS 固定唤醒词：已保存“开启”不会在登录瞬间自动触发麦克风授权，需本会话内手动关闭后再开启；唤醒监听与处理异常时安全停止
+      4、桌面机器人 Agent Portal 支持约屏高 68% 的圆形展开、返回宠物、透明命中区与定位同步
+      5、细化主窗口关闭与退出清理逻辑，减少非预期退出
       [2026-08-08] v0.9.0 新增中英双语界面
       1、支持中文与英文界面语言，设置中可切换，默认中文
       2、切换语言后立即刷新主窗口、工作台、设置与宠物等用户可见文案，无需重启
