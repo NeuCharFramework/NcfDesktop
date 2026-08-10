@@ -33,6 +33,10 @@ internal interface ILocalVoiceInputService
 {
     event Action<AudioVisualizationFrame>? VisualizationFrameAvailable;
 
+    event Action<VoiceRecordingAutoStopRequested>? AutoStopRequested;
+
+    event Action<VoiceRecordingSpeechDetected>? SpeechDetected;
+
     Guid? RecordingOwner { get; }
 
     Task DownloadModelAsync(
@@ -43,6 +47,7 @@ internal interface ILocalVoiceInputService
     Task StartRecordingAsync(
         Guid owner,
         string modelPath,
+        bool automaticallyStopAfterSpeech,
         CancellationToken cancellationToken);
 
     Task<string> StopAndTranscribeAsync(
@@ -52,6 +57,15 @@ internal interface ILocalVoiceInputService
 
     Task CancelRecordingAsync(Guid owner);
 }
+
+internal sealed record VoiceRecordingAutoStopRequested(
+    Guid Owner,
+    VoiceRecordingAutoStopReason Reason);
+
+/// <summary>
+/// 唤醒词录音已确认有用户讲话。用于界面展示端点检测状态，不会停止录音。
+/// </summary>
+internal sealed record VoiceRecordingSpeechDetected(Guid Owner);
 
 internal sealed class LocalVoiceInputService : ILocalVoiceInputService, IDisposable
 {
@@ -76,12 +90,17 @@ internal sealed class LocalVoiceInputService : ILocalVoiceInputService, IDisposa
     private long _loadedModelLength;
     private DateTime _loadedModelWriteTimeUtc;
     private VoiceOperationStage _operationStage;
+    private VoiceEndpointDetector? _endpointDetector;
     private long _lastVisualizationTick;
     private bool _disposed;
 
     public static LocalVoiceInputService Shared => SharedInstance.Value;
 
     public event Action<AudioVisualizationFrame>? VisualizationFrameAvailable;
+
+    public event Action<VoiceRecordingAutoStopRequested>? AutoStopRequested;
+
+    public event Action<VoiceRecordingSpeechDetected>? SpeechDetected;
 
     public static void DisposeShared()
     {
@@ -178,6 +197,7 @@ internal sealed class LocalVoiceInputService : ILocalVoiceInputService, IDisposa
     public async Task StartRecordingAsync(
         Guid owner,
         string modelPath,
+        bool automaticallyStopAfterSpeech,
         CancellationToken cancellationToken)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -232,6 +252,7 @@ internal sealed class LocalVoiceInputService : ILocalVoiceInputService, IDisposa
                 _recordingModelPath = modelPath;
                 _recordingDeviceName = device.Name;
                 _operationStage = VoiceOperationStage.Recording;
+                _endpointDetector = automaticallyStopAfterSpeech ? new VoiceEndpointDetector() : null;
             }
         }
         catch
@@ -437,6 +458,7 @@ internal sealed class LocalVoiceInputService : ILocalVoiceInputService, IDisposa
             }
 
             _operationStage = VoiceOperationStage.Transcribing;
+            _endpointDetector = null;
         }
     }
 
@@ -478,6 +500,7 @@ internal sealed class LocalVoiceInputService : ILocalVoiceInputService, IDisposa
             _recordingModelPath = string.Empty;
             _recordingDeviceName = string.Empty;
             _operationStage = VoiceOperationStage.None;
+            _endpointDetector = null;
         }
     }
 
@@ -533,6 +556,11 @@ internal sealed class LocalVoiceInputService : ILocalVoiceInputService, IDisposa
                 }
             }
 
+            VoiceRecordingSpeechDetected? speechDetected = null;
+            var autoStopRequest = capturedCount > 0
+                ? DetectAutoStop(samples[..capturedCount], out speechDetected)
+                : null;
+
             var now = Environment.TickCount64;
             var previous = Interlocked.Read(ref _lastVisualizationTick);
             if (capturedCount > 0 && now - previous >= 45 &&
@@ -542,6 +570,16 @@ internal sealed class LocalVoiceInputService : ILocalVoiceInputService, IDisposa
                     samples[..capturedCount],
                     VoiceAudioAnalysis.SampleRate));
             }
+
+            if (speechDetected != null)
+            {
+                PublishSpeechDetected(speechDetected);
+            }
+
+            if (autoStopRequest != null)
+            {
+                PublishAutoStopRequest(autoStopRequest);
+            }
         }
         catch (Exception ex)
         {
@@ -549,6 +587,37 @@ internal sealed class LocalVoiceInputService : ILocalVoiceInputService, IDisposa
             {
                 _captureFailure ??= ex;
             }
+        }
+    }
+
+    private VoiceRecordingAutoStopRequested? DetectAutoStop(
+        ReadOnlySpan<float> samples,
+        out VoiceRecordingSpeechDetected? speechDetected)
+    {
+        speechDetected = null;
+        lock (_stateLock)
+        {
+            if (_operationStage != VoiceOperationStage.Recording ||
+                _recordingOwner is not { } owner ||
+                _endpointDetector == null)
+            {
+                return null;
+            }
+
+            var detector = _endpointDetector;
+            var reason = detector.Process(samples);
+            if (detector.SpeechStartedNow)
+            {
+                speechDetected = new VoiceRecordingSpeechDetected(owner);
+            }
+            if (reason == null)
+            {
+                return null;
+            }
+
+            // 端点事件只允许发送一次；实际停止录音由 UI 线程异步完成。
+            _endpointDetector = null;
+            return new VoiceRecordingAutoStopRequested(owner, reason.Value);
         }
     }
 
@@ -589,6 +658,30 @@ internal sealed class LocalVoiceInputService : ILocalVoiceInputService, IDisposa
         catch
         {
             // UI 可视化订阅者不得中断实时录音回调。
+        }
+    }
+
+    private void PublishAutoStopRequest(VoiceRecordingAutoStopRequested request)
+    {
+        try
+        {
+            AutoStopRequested?.Invoke(request);
+        }
+        catch
+        {
+            // UI 订阅者不得中断实时录音回调。
+        }
+    }
+
+    private void PublishSpeechDetected(VoiceRecordingSpeechDetected detected)
+    {
+        try
+        {
+            SpeechDetected?.Invoke(detected);
+        }
+        catch
+        {
+            // UI 状态订阅者不得中断实时录音回调。
         }
     }
 

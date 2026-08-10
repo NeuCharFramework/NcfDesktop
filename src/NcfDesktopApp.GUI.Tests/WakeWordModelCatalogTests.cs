@@ -205,7 +205,6 @@ public sealed class WakeWordModelCatalogTests
     [DataTestMethod]
     [DataRow(true, false, false, false, false)]
     [DataRow(false, true, false, false, false)]
-    [DataRow(false, false, true, false, false)]
     [DataRow(false, false, false, true, false)]
     [DataRow(false, false, false, false, true)]
     public void ShouldListen_WhenAnOperationConflicts_PausesListener(
@@ -226,6 +225,22 @@ public sealed class WakeWordModelCatalogTests
             workspaceDisposed: workspaceDisposed);
 
         Assert.IsFalse(result);
+    }
+
+    [TestMethod]
+    public void ShouldListen_WhenStreamingTtsIsPlayingDuringAdminReply_UsesMicrophone()
+    {
+        var result = WakeWordListeningPolicy.ShouldListen(
+            enabled: true,
+            wakeModelReady: true,
+            voiceModelReady: true,
+            adminChatActive: true,
+            adminChatBusy: true,
+            voiceInputBusy: false,
+            ttsPlaying: true,
+            workspaceDisposed: false);
+
+        Assert.IsTrue(result);
     }
 
     private string CreateCompleteModelDirectory()

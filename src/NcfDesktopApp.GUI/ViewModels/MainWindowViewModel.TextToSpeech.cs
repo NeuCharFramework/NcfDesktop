@@ -180,6 +180,8 @@ public partial class MainWindowViewModel
         _audioServicesInitialized = true;
         InitializeWakeWordServiceForWorkspace();
         _voiceInputService.VisualizationFrameAvailable += OnVoiceVisualizationFrame;
+        _voiceInputService.AutoStopRequested += OnVoiceRecordingAutoStopRequested;
+        _voiceInputService.SpeechDetected += OnVoiceRecordingSpeechDetected;
         _ttsService.VisualizationFrameAvailable += OnTtsVisualizationFrame;
     }
 
@@ -496,7 +498,6 @@ public partial class MainWindowViewModel
 
         try
         {
-            await StopWakeWordListeningForOperationAsync().ConfigureAwait(true);
             state.Cancellation.Token.ThrowIfCancellationRequested();
             _speakingMessageId = state.FinalMessageId;
             IsTtsPlaying = true;
@@ -570,7 +571,6 @@ public partial class MainWindowViewModel
             return;
         }
 
-        await StopWakeWordListeningForOperationAsync().ConfigureAwait(true);
         StopTtsPlayback();
         var cts = new CancellationTokenSource();
         _ttsPlaybackCts = cts;
@@ -736,6 +736,8 @@ public partial class MainWindowViewModel
         }
         _ttsModelDownloadCts?.Cancel();
         _voiceInputService.VisualizationFrameAvailable -= OnVoiceVisualizationFrame;
+        _voiceInputService.AutoStopRequested -= OnVoiceRecordingAutoStopRequested;
+        _voiceInputService.SpeechDetected -= OnVoiceRecordingSpeechDetected;
         _ttsService.VisualizationFrameAvailable -= OnTtsVisualizationFrame;
         _audioServicesInitialized = false;
     }

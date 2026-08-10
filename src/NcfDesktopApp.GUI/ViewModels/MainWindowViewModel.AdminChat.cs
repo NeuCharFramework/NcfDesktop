@@ -158,6 +158,10 @@ public partial class MainWindowViewModel
     partial void OnIsAdminChatBusyChanged(bool value)
     {
         NotifyAdminChatStateChanged();
+        if (!value)
+        {
+            SchedulePendingWakeWordTranscriptSend();
+        }
     }
 
     partial void OnIsDesktopBridgeAvailableForChatChanged(bool value)
@@ -631,10 +635,11 @@ public partial class MainWindowViewModel
     /// <summary>
     /// 手动发送和 STT 自动发送共用的唯一入口，保证鉴权、流式响应和失败恢复行为一致。
     /// </summary>
-    /// <returns>消息是否完成发送；失败时原始内容会恢复到输入框。</returns>
-    private async Task<bool> SendAdminChatMessageCoreAsync()
+    /// <returns>消息是否完成发送；由输入框发起时失败会恢复原文字，显式内容则交由调用方保留。</returns>
+    private async Task<bool> SendAdminChatMessageCoreAsync(string? contentOverride = null)
     {
-        var content = ChatInput.Trim();
+        var useChatInput = contentOverride == null;
+        var content = (contentOverride ?? ChatInput).Trim();
         if (content.Length == 0)
         {
             return false;
@@ -655,7 +660,10 @@ public partial class MainWindowViewModel
                 _adminChatSessionModelIds[sessionId] = SelectedAdminChatAiModel?.Id ?? 0;
             }
 
-            ChatInput = string.Empty;
+            if (useChatInput)
+            {
+                ChatInput = string.Empty;
+            }
             ClearPendingStreamingChunks();
             var optimisticUserId = await Dispatcher.UIThread.InvokeAsync(() =>
                 AddOptimisticUserMessage(sessionId, content));
@@ -679,21 +687,30 @@ public partial class MainWindowViewModel
         catch (AdminChatApiException ex)
         {
             RemovePendingStreamingMessages();
-            ChatInput = content;
+            if (useChatInput)
+            {
+                ChatInput = content;
+            }
             HandleAdminChatApiFailure(ex);
             return false;
         }
         catch (OperationCanceledException)
         {
             RemovePendingStreamingMessages();
-            ChatInput = content;
+            if (useChatInput)
+            {
+                ChatInput = content;
+            }
             AdminChatStatusText = "发送已取消。";
             return false;
         }
         catch (Exception ex)
         {
             RemovePendingStreamingMessages();
-            ChatInput = content;
+            if (useChatInput)
+            {
+                ChatInput = content;
+            }
             AdminChatStatusText = $"发送失败：{ex.Message}";
             AddLog($"❌ Admin Chat 发送失败: {ex.Message}");
             return false;

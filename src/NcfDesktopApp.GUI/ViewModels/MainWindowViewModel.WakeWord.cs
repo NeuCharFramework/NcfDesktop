@@ -401,11 +401,6 @@ public partial class MainWindowViewModel
             return "语音录制或转写期间，唤醒监听已暂时暂停。";
         }
 
-        if (IsTtsPlaying)
-        {
-            return "本机正在朗读，为避免扬声器误触发，唤醒监听已暂时暂停。";
-        }
-
         return "唤醒监听已暂停。";
     }
 
@@ -460,10 +455,19 @@ public partial class MainWindowViewModel
         _wakeWordHandlingDetection = true;
         try
         {
+            var interruptedTtsPlayback = IsTtsPlaying;
             WakeWordStatusText = $"已检测到“{detected.Phrase}”，正在切换到语音录制…";
             Robot.SetVoiceInputState("已唤醒", "正在开始本地语音录制");
+            if (interruptedTtsPlayback)
+            {
+                StopTtsPlayback();
+                TtsPlaybackStatusText = "检测到唤醒词，已停止朗读并准备录音。";
+                AddLog("🎙️ 朗读期间检测到唤醒词，已停止本地朗读并切换到录音。");
+            }
             await StopWakeWordListeningForOperationAsync().ConfigureAwait(true);
-            await StartVoiceInputAsync(startedByWakeWord: true).ConfigureAwait(true);
+            await StartVoiceInputAsync(
+                startedByWakeWord: true,
+                allowWhileAdminChatBusy: interruptedTtsPlayback).ConfigureAwait(true);
         }
         finally
         {

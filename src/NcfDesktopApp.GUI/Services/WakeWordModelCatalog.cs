@@ -145,9 +145,9 @@ internal static class WakeWordListeningPolicy
                wakeModelReady &&
                voiceModelReady &&
                adminChatActive &&
-               !adminChatBusy &&
+               // 流式自动朗读会在回复尚未完全结束时播放；此时允许用户用唤醒词打断朗读。
+               (!adminChatBusy || ttsPlaying) &&
                !voiceInputBusy &&
-               !ttsPlaying &&
                !workspaceDisposed;
     }
 }

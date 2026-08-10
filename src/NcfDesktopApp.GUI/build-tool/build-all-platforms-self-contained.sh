@@ -15,7 +15,8 @@ NC='\033[0m' # No Color
 
 # 配置
 PROJECT_NAME="NcfDesktopApp.GUI"
-SOLUTION_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+BUILD_TOOL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SOLUTION_DIR="$(cd "$BUILD_TOOL_DIR/.." && pwd)"
 PROJECT_FILE="${SOLUTION_DIR}/${PROJECT_NAME}.csproj"
 OUTPUT_DIR="${SOLUTION_DIR}/publish-self-contained"
 BUILD_CONFIG="Release"
@@ -395,9 +396,8 @@ if [ "$CREATE_MACOS_APP" = true ]; then
         # 检查是否在 macOS 上运行
         if [[ "$OSTYPE" == "darwin"* ]]; then
             # 调用 create-macos-app.sh
-            SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-            if [ -f "$SCRIPT_DIR/create-macos-app.sh" ]; then
-                bash "$SCRIPT_DIR/create-macos-app.sh"
+            if [ -f "$BUILD_TOOL_DIR/create-macos-app.sh" ]; then
+                bash "$BUILD_TOOL_DIR/create-macos-app.sh"
                 echo -e "${GREEN}✅ macOS .app 包创建完成${NC}"
             else
                 echo -e "${RED}❌ 未找到 create-macos-app.sh 脚本${NC}"
