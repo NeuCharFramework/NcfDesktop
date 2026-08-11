@@ -51,6 +51,8 @@
   "Agent.TemplateNew": "From template",
   "Agent.OpenTarget": "Open target",
   "Agent.Settings": "Settings",
+  "Agent.ActivateWakeWord": "Enable wake phrase",
+  "Agent.ActivateWakeWordTip": "Safely reinitialize wake-phrase listening for this session",
   "Agent.RunTarget": "Launch target",
   "Agent.RunTargetHint": "Each version is an isolated Agent execution environment",
   "Agent.ModeManaged": "Managed",

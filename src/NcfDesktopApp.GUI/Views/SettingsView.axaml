@@ -33,34 +33,47 @@
                                Foreground="{DynamicResource SecondaryTextBrush}"/>
                 </StackPanel>
 
-                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <WrapPanel Grid.Column="1" Orientation="Horizontal"
+                           HorizontalAlignment="Right" VerticalAlignment="Center">
                     <Button Content="{loc:Loc Agent.NewWorkspaceTab}"
                             Command="{Binding CreateWorkspaceWindowCommand}"
                             Classes="toolbar-action"
                             Background="#0F766E"
-                            Foreground="White"/>
+                            Foreground="White"
+                            Margin="0,0,8,0"/>
                     <Button Content="{loc:Loc Agent.TemplateNew}"
                             Command="{Binding ShowTemplateWorkspaceCommand}"
                             Classes="toolbar-action"
                             Background="#7C3AED"
-                            Foreground="White"/>
+                            Foreground="White"
+                            Margin="0,0,8,0"/>
                     <Button Content="{loc:Loc Agent.OpenTarget}"
                             Command="{Binding OpenSelectedTargetDirectoryCommand}"
                             Classes="toolbar-action"
                             Background="#475569"
-                            Foreground="White"/>
+                            Foreground="White"
+                            Margin="0,0,8,0"/>
                     <Button Content="{loc:Loc Agent.Settings}"
                             Command="{Binding ShowWorkspaceSettingsCommand}"
                             Classes="toolbar-action"
                             Background="{DynamicResource ToolbarBackgroundBrush}"
                             BorderBrush="{DynamicResource CardBorderBrush}"
-                            BorderThickness="1"/>
+                            BorderThickness="1"
+                            Margin="0,0,8,0"/>
+                    <Button Content="{loc:Loc Agent.ActivateWakeWord}"
+                            Command="{Binding ActivateWakeWordForCurrentSessionCommand}"
+                            IsVisible="{Binding IsWakeWordSessionActivationRequired}"
+                            Classes="toolbar-action"
+                            Background="#0F766E"
+                            Foreground="White"
+                            Margin="0,0,8,0"
+                            ToolTip.Tip="{loc:Loc Agent.ActivateWakeWordTip}"/>
                     <Button Content="{Binding MainButtonText}"
                             Command="{Binding MainOperationCommand}"
                             Classes="primary-action"
                             Background="#2563EB"
                             Foreground="White"/>
-                </StackPanel>
+                </WrapPanel>
             </Grid>
         </Border>
 

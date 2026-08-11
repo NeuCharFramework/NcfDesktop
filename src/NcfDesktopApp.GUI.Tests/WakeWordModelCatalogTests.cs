@@ -110,6 +110,25 @@ public sealed class WakeWordModelCatalogTests
         Assert.IsFalse(settings.WakeWordEnabled);
     }
 
+    [DataTestMethod]
+    [DataRow(true, true, false, true)]
+    [DataRow(true, true, true, false)]
+    [DataRow(true, false, false, false)]
+    [DataRow(false, true, false, false)]
+    public void StartupPolicy_OnlyRequiresActivationForPersistedMacOsWakeWordSetting(
+        bool isMacOS,
+        bool wakeWordEnabled,
+        bool explicitlyActivatedThisSession,
+        bool expected)
+    {
+        var requiresActivation = WakeWordStartupPolicy.RequiresCurrentSessionActivation(
+            isMacOS,
+            wakeWordEnabled,
+            explicitlyActivatedThisSession);
+
+        Assert.AreEqual(expected, requiresActivation);
+    }
+
     [TestMethod]
     public void DownloadSources_UseOfficialSourceThenHttpsFallbacks()
     {

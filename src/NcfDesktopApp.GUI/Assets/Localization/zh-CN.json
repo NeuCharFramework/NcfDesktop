@@ -51,6 +51,8 @@
   "Agent.TemplateNew": "模板新建",
   "Agent.OpenTarget": "打开目标",
   "Agent.Settings": "设置",
+  "Agent.ActivateWakeWord": "开启唤醒",
+  "Agent.ActivateWakeWordTip": "安全地重新初始化本次运行的固定唤醒词监听",
   "Agent.RunTarget": "运行目标",
   "Agent.RunTargetHint": "每个版本都是独立的 Agent 执行环境",
   "Agent.ModeManaged": "托管版本",

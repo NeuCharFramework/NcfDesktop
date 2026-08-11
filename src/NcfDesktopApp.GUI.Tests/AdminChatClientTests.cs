@@ -340,10 +340,13 @@ public sealed class AdminChatClientTests
                   "success": true,
                   "data": {
                     "agents": [
-                      { "id": 8, "name": "Planner", "chattingCount": 2, "enable": true, "promptCode": "not-copied" }
+                      { "id": 8, "name": "Planner", "score": 88.5, "chattingCount": 2, "enable": true, "promptCode": "not-copied" }
                     ],
-                    "groups": [],
-                    "links": [],
+                    "groups": [
+                      { "id": 3, "name": "Planning Mesh", "enable": true, "runningTaskCount": 1,
+                        "taskStatusCounts": { "1": 1 }, "memberAgentIds": [8] }
+                    ],
+                    "links": [ { "groupId": 3, "agentId": 8 } ],
                     "collaborations": [
                       { "taskId": 19, "groupId": 3, "taskName": "Plan", "status": 1, "agentIds": [8] }
                     ]
@@ -358,8 +361,59 @@ public sealed class AdminChatClientTests
         Assert.AreEqual("Bearer jwt-in-memory", graphAuthorization);
         StringAssert.Contains(graphPath, "GetAgentGraphSnapshot");
         Assert.AreEqual("Planner", snapshot.Agents.Single().Name);
+        Assert.AreEqual(88.5f, snapshot.Agents.Single().Score, .01f);
         Assert.AreEqual(2, snapshot.Agents.Single().ChattingCount);
+        Assert.AreEqual("Planning Mesh", snapshot.Groups.Single().Name);
+        Assert.AreEqual(1, snapshot.Groups.Single().TaskStatusCounts[1]);
+        Assert.AreEqual(8, snapshot.Links.Single().AgentId);
         CollectionAssert.AreEqual(new[] { 8 }, snapshot.Collaborations.Single().AgentIds);
+    }
+
+    [TestMethod]
+    public async Task GetAgentTaskUsageAnalyticsAsync_UsesAuthorizedTaskScopedEndpoint()
+    {
+        string? usageAuthorization = null;
+        string? usagePath = null;
+        var client = CreateClient(request =>
+        {
+            var path = request.RequestUri?.PathAndQuery ?? string.Empty;
+            if (path.Contains("AdminUserInfoAppService.LoginAsync", StringComparison.Ordinal))
+            {
+                return LoginResponse();
+            }
+
+            if (path.Contains("GetSessionListAsync", StringComparison.Ordinal))
+            {
+                return EmptySessionsResponse();
+            }
+
+            usageAuthorization = request.Headers.Authorization?.ToString();
+            usagePath = path;
+            return JsonResponse("""
+                {
+                  "success": true,
+                  "data": {
+                    "overview": {
+                      "messageCount": 7,
+                      "promptTokens": 120,
+                      "completionTokens": 80,
+                      "totalTokens": 200,
+                      "averageResponseMilliseconds": 150.5,
+                      "p95ResponseMilliseconds": 320
+                    }
+                  }
+                }
+                """);
+        });
+        await client.AuthenticateAsync(SiteUrl, "admin", "secret");
+
+        var usage = await client.GetAgentTaskUsageAnalyticsAsync(SiteUrl, 42);
+
+        Assert.AreEqual("Bearer jwt-in-memory", usageAuthorization);
+        StringAssert.Contains(usagePath, "GetUsageAnalytics");
+        StringAssert.Contains(usagePath, "chatTaskId=42");
+        Assert.AreEqual(200, usage.Overview.TotalTokens);
+        Assert.AreEqual(320, usage.Overview.P95ResponseMilliseconds);
     }
 
     [TestMethod]

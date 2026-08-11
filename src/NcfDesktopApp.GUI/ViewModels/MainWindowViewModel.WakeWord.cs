@@ -73,6 +73,16 @@ public partial class MainWindowViewModel
             ? "#DC3545"
             : "#D97706";
 
+    /// <summary>
+    /// 仅在 macOS 恢复了已保存的开启状态、但还未在本次运行中安全激活时显示。
+    /// </summary>
+    public bool IsWakeWordSessionActivationRequired =>
+        !_workspaceAudioDisposed &&
+        WakeWordStartupPolicy.RequiresCurrentSessionActivation(
+            OperatingSystem.IsMacOS(),
+            WakeWordEnabled,
+            _wakeWordExplicitlyToggledThisSession);
+
     partial void OnWakeWordEnabledChanged(bool value)
     {
         if (!_suppressDesktopSettingsSave)
@@ -91,6 +101,7 @@ public partial class MainWindowViewModel
         }
 
         OnPropertyChanged(nameof(WakeWordStatusColor));
+        OnPropertyChanged(nameof(IsWakeWordSessionActivationRequired));
         DownloadWakeWordModelCommand.NotifyCanExecuteChanged();
         ScheduleWakeWordListeningRefresh();
     }
@@ -222,6 +233,32 @@ public partial class MainWindowViewModel
         OpenBrowser(WakeWordModelCatalog.ModelsDirectory);
     }
 
+    /// <summary>
+    /// 供 macOS 主界面的一键入口使用。它先确保没有残留的监听，再把已保存的
+    /// 开启状态安全地应用到本次运行；效果等同于用户手动关闭后再开启，但不会把
+    /// 设置文件短暂写成关闭状态。
+    /// </summary>
+    [RelayCommand]
+    private async Task ActivateWakeWordForCurrentSession()
+    {
+        if (!IsWakeWordSessionActivationRequired)
+        {
+            return;
+        }
+
+        await StopWakeWordListeningForOperationAsync().ConfigureAwait(true);
+        if (_workspaceAudioDisposed)
+        {
+            return;
+        }
+
+        _wakeWordExplicitlyToggledThisSession = true;
+        OnPropertyChanged(nameof(IsWakeWordSessionActivationRequired));
+        WakeWordStatusText = "已重新开启本次运行的固定唤醒词；正在检查监听条件…";
+        AddLog("🎙️ 已通过主界面重新开启本次运行的固定唤醒词监听。");
+        ScheduleWakeWordListeningRefresh();
+    }
+
     internal void RefreshWakeWordModelReadiness()
     {
         var readiness = WakeWordModelCatalog.Evaluate();
@@ -242,13 +279,11 @@ public partial class MainWindowViewModel
             return;
         }
 
-        if (OperatingSystem.IsMacOS() &&
-            WakeWordEnabled &&
-            !_wakeWordExplicitlyToggledThisSession)
+        if (IsWakeWordSessionActivationRequired)
         {
             IsWakeWordListening = false;
             WakeWordStatusText =
-                "macOS 已保留固定唤醒词设置；为避免登录时触发麦克风授权导致主窗口退出，请在本次运行中关闭后再开启一次。";
+                "macOS 已保留固定唤醒词设置；为避免登录时触发麦克风授权导致主窗口退出，请点击主界面右上角“开启唤醒”。";
             return;
         }
 
@@ -413,6 +448,7 @@ public partial class MainWindowViewModel
     private async Task DisposeWakeWordServiceForWorkspaceAsync()
     {
         _workspaceAudioDisposed = true;
+        OnPropertyChanged(nameof(IsWakeWordSessionActivationRequired));
         _wakeWordModelDownloadCts?.Cancel();
         await StopWakeWordListeningForOperationAsync().ConfigureAwait(true);
         _wakeWordService.KeywordDetected -= OnWakeWordDetected;
