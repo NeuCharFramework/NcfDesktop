@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
-    <Version>0.3.2</Version>
+    <Version>0.3.3</Version>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -26,6 +26,9 @@
       1、验证音频频谱、流式播放队列、TTS 文本分段及本地模型目录
       2、验证唤醒词模型、语音分析、桌面设置和机器人布局策略
       3、验证更新源选择、滚动策略及 net8.0 桌面运行时兼容性
+      [2026-08-12] v0.3.3 扩展唤醒词会话激活与 Agent Portal、语音端点测试
+      1、覆盖 macOS 当前会话唤醒词激活策略、监听状态及语音端点检测行为
+      2、补充 Agent Portal 投影、AdminChat 会话刷新、桌面设置和本地模型目录的稳定性回归验证
     </PackageReleaseNotes>
   </PropertyGroup>
 

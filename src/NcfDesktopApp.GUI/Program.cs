@@ -1,4 +1,17 @@
-﻿using Avalonia;
+﻿/*----------------------------------------------------------------
+    Copyright (C) 2026 Senparc
+
+    文件名：Program.cs
+    文件功能描述：启动 Avalonia 桌面应用并配置进程级运行环境
+
+    创建标识：Senparc - 20260802
+
+    修改标识：Senparc - 20260812
+    修改描述：v0.10.0 完善桌面端唤醒词会话激活与中英文提示
+
+----------------------------------------------------------------*/
+
+using Avalonia;
 using System;
 using System.Runtime.InteropServices;
 using Avalonia.WebView.Desktop;

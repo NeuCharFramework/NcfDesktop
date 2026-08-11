@@ -1,3 +1,16 @@
+/*----------------------------------------------------------------
+    Copyright (C) 2026 Senparc
+
+    文件名：WorkspaceSettingsWindow.axaml.cs
+    文件功能描述：显示工作区设置窗口并触发桌面应用更新检查
+
+    创建标识：Senparc - 20260802
+
+    修改标识：Senparc - 20260812
+    修改描述：v0.10.0 完善桌面端唤醒词会话激活与中英文提示
+
+----------------------------------------------------------------*/
+
 using System;
 using Avalonia.Controls;
 using Avalonia.Interactivity;

@@ -1,3 +1,16 @@
+/*----------------------------------------------------------------
+    Copyright (C) 2026 Senparc
+
+    文件名：FloatingWindowPlatformService.cs
+    文件功能描述：为无边框桌面浮窗提供平台原生透明、圆角和命中区域适配
+
+    创建标识：Senparc - 20260808
+
+    修改标识：Senparc - 20260812
+    修改描述：v0.10.0 完善桌面端唤醒词会话激活与中英文提示
+
+----------------------------------------------------------------*/
+
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
