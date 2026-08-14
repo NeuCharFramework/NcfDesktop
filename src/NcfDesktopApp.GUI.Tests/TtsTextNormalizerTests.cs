@@ -27,7 +27,20 @@ public sealed class TtsTextNormalizerTests
         var chunks = TtsTextNormalizer.SplitForSpeech(text);
 
         Assert.IsTrue(chunks.Count > 1);
-        Assert.IsTrue(chunks.All(chunk => chunk.Length is > 0 and <= 280));
+        Assert.IsTrue(chunks.All(chunk => chunk.Length is > 0 and <= 300));
+    }
+
+    [TestMethod]
+    public void SplitForSpeech_SubsequentChunkWaitsForNearbySentenceEnd()
+    {
+        var firstSentence = new string('首', 39) + "。";
+        var secondSentence = new string('后', 270) + "。";
+
+        var chunks = TtsTextNormalizer.SplitForSpeech(firstSentence + secondSentence);
+
+        Assert.AreEqual(2, chunks.Count);
+        Assert.AreEqual(firstSentence, chunks[0]);
+        Assert.AreEqual(secondSentence, chunks[1]);
     }
 
     [TestMethod]
@@ -40,6 +53,55 @@ public sealed class TtsTextNormalizerTests
 
         CollectionAssert.AreEqual(new[] { "这是第一段完整的话。" }, first.ToArray());
         CollectionAssert.AreEqual(new[] { "后面是第二段完整的话。" }, second.ToArray());
+    }
+
+    [TestMethod]
+    public void StreamingBuffer_FirstChunkUsesEarlySentenceBoundary()
+    {
+        var buffer = new StreamingTtsTextBuffer();
+
+        var chunks = buffer.Append("好的。后续内容正在生成");
+
+        CollectionAssert.AreEqual(new[] { "好的。" }, chunks.ToArray());
+    }
+
+    [TestMethod]
+    public void StreamingBuffer_SubsequentChunkWaitsPastPreferredLengthForPunctuation()
+    {
+        var buffer = new StreamingTtsTextBuffer();
+        CollectionAssert.AreEqual(new[] { "首段。" }, buffer.Append("首段。").ToArray());
+
+        var beforePunctuation = buffer.Append(new string('甲', 96));
+        var afterPunctuation = buffer.Append("乙丙丁。");
+
+        Assert.AreEqual(0, beforePunctuation.Count);
+        CollectionAssert.AreEqual(
+            new[] { new string('甲', 96) + "乙丙丁。" },
+            afterPunctuation.ToArray());
+    }
+
+    [TestMethod]
+    public void StreamingBuffer_SubsequentChunkStopsAtExtendedMaximumWithoutPunctuation()
+    {
+        var buffer = new StreamingTtsTextBuffer();
+        buffer.Append("首段。");
+
+        Assert.AreEqual(0, buffer.Append(new string('甲', 127)).Count);
+        var chunks = buffer.Append("乙");
+
+        Assert.AreEqual(1, chunks.Count);
+        Assert.AreEqual(128, chunks[0].Length);
+    }
+
+    [TestMethod]
+    public void StreamingBuffer_FirstChunkRetainsResponsiveMaximum()
+    {
+        var buffer = new StreamingTtsTextBuffer();
+
+        var chunks = buffer.Append(new string('甲', 96));
+
+        Assert.AreEqual(1, chunks.Count);
+        Assert.AreEqual(96, chunks[0].Length);
     }
 
     [TestMethod]

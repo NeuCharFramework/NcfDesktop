@@ -12,6 +12,9 @@
     修改标识：Senparc - 20260812
     修改描述：v0.10.0 完善桌面端唤醒词会话激活与中英文提示
 
+    修改标识：Senparc - 20260815
+    修改描述：v0.10.1 透明机器人窗口 Show 后刷新原生透明属性
+
 ----------------------------------------------------------------*/
 
 using Avalonia;
@@ -184,19 +187,13 @@ public partial class App : Application
         if (_robotLayoutMode == DesktopRobotLayoutMode.GroupedList)
         {
             var groupWindow = EnsureRobotGroupWindow();
-            if (!groupWindow.IsVisible)
-            {
-                groupWindow.Show();
-            }
+            ShowTransparentRobotWindow(groupWindow);
             groupWindow.PromoteAboveOtherAlwaysOnTopWindows();
             groupWindow.Activate();
             return;
         }
 
-        if (!context.RobotWindow.IsVisible)
-        {
-            context.RobotWindow.Show();
-        }
+        ShowTransparentRobotWindow(context.RobotWindow);
         context.RobotWindow.Activate();
     }
 
@@ -235,10 +232,7 @@ public partial class App : Application
             }
 
             var groupWindow = EnsureRobotGroupWindow();
-            if (!groupWindow.IsVisible)
-            {
-                groupWindow.Show();
-            }
+            ShowTransparentRobotWindow(groupWindow);
             groupWindow.PromoteAboveOtherAlwaysOnTopWindows();
             return;
         }
@@ -246,11 +240,19 @@ public partial class App : Application
         _robotGroupWindow?.Hide();
         foreach (var context in _workspaceContexts.Values)
         {
-            if (!context.RobotWindow.IsVisible)
-            {
-                context.RobotWindow.Show();
-            }
+            ShowTransparentRobotWindow(context.RobotWindow);
         }
+    }
+
+    private static void ShowTransparentRobotWindow(Window window)
+    {
+        if (window.IsVisible)
+        {
+            return;
+        }
+
+        window.Show();
+        FloatingWindowPlatformService.RefreshNativeTransparency(window);
     }
 
     private DesktopRobotGroupWindow EnsureRobotGroupWindow()

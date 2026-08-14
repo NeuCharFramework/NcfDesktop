@@ -140,6 +140,42 @@ public sealed class AgentPortalProjectionTests
     }
 
     [TestMethod]
+    public void RenderGraph_DeduplicatesRepeatedSnapshotEntitiesBeforeRendering()
+    {
+        var graph = AgentPortalRenderGraphProjection.Create(
+            new AgentGraphSnapshot
+            {
+                Agents =
+                [
+                    new AgentGraphAgent { Id = 2, Name = "Planner", ChattingCount = 1, Enable = true },
+                    new AgentGraphAgent { Id = 2, Name = "Planner duplicate", ChattingCount = 1, Enable = true }
+                ],
+                Groups =
+                [
+                    new AgentGraphGroup { Id = 5, Name = "Delivery", Enable = true, RunningTaskCount = 1 },
+                    new AgentGraphGroup { Id = 5, Name = "Delivery duplicate", Enable = true, RunningTaskCount = 1 }
+                ],
+                Links =
+                [
+                    new AgentGraphLink { GroupId = 5, AgentId = 2 },
+                    new AgentGraphLink { GroupId = 5, AgentId = 2 }
+                ],
+                Collaborations =
+                [
+                    new AgentGraphCollaboration { TaskId = 8, GroupId = 5, TaskName = "Build", Status = 1, AgentIds = [2, 2] },
+                    new AgentGraphCollaboration { TaskId = 8, GroupId = 5, TaskName = "Build duplicate", Status = 1, AgentIds = [2] }
+                ]
+            },
+            fallbackNodes: null);
+
+        Assert.AreEqual(1, graph.Agents.Count);
+        Assert.AreEqual(1, graph.Groups.Count);
+        Assert.AreEqual(1, graph.Links.Count);
+        Assert.AreEqual(1, graph.Collaborations.Count);
+        CollectionAssert.AreEqual(new[] { 2 }, graph.Collaborations.Single().AgentIds.ToArray());
+    }
+
+    [TestMethod]
     public void RecentCompletionTracker_OnlyLabelsCompletionWhenFinishedCountConfirmsIt()
     {
         var tracker = new AgentPortalRecentCompletionTracker();

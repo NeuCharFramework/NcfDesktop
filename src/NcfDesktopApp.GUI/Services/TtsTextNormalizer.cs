@@ -9,6 +9,9 @@
     修改标识：Senparc - 20260804
     修改描述：v0.6.0 增加 Markdown 清理与流式短句安全分段
 
+    修改标识：Senparc - 20260815
+    修改描述：v0.10.1 优化流式朗读首段响应与后续标点感知分段
+
 ----------------------------------------------------------------*/
 
 using System;
@@ -20,7 +23,8 @@ namespace NcfDesktopApp.GUI.Services;
 
 internal static partial class TtsTextNormalizer
 {
-    private const int PreferredChunkLength = 260;
+    private const int FirstChunkMaximumLength = 260;
+    private const int SubsequentChunkMaximumLength = 300;
 
     public static string Normalize(string? text)
     {
@@ -53,8 +57,11 @@ internal static partial class TtsTextNormalizer
         foreach (var character in normalized)
         {
             current.Append(character);
-            var sentenceEnd = character is '。' or '！' or '？' or '；' or '.' or '!' or '?' or ';';
-            if ((sentenceEnd && current.Length >= 40) || current.Length >= PreferredChunkLength)
+            var maximumLength = result.Count == 0
+                ? FirstChunkMaximumLength
+                : SubsequentChunkMaximumLength;
+            if ((IsStrongSpeechBoundary(character) && current.Length >= 40) ||
+                current.Length >= maximumLength)
             {
                 AddChunk(result, current);
             }
@@ -63,6 +70,16 @@ internal static partial class TtsTextNormalizer
         AddChunk(result, current);
         return result;
     }
+
+    /// <summary>
+    /// 强边界可以作为一句话的自然结束；流式与完整文本分段共用同一规则，
+    /// 避免两条朗读路径对同一标点产生不同的断句结果。
+    /// </summary>
+    internal static bool IsStrongSpeechBoundary(char character) =>
+        character is '。' or '！' or '？' or '；' or '.' or '!' or '?' or ';';
+
+    internal static bool IsSoftSpeechBoundary(char character) =>
+        character is '，' or ',' or '、' or '：' or ':' or '\n' or '\r';
 
     private static void AddChunk(List<string> result, StringBuilder current)
     {
@@ -105,12 +122,17 @@ internal static partial class TtsTextNormalizer
 /// </summary>
 internal sealed class StreamingTtsTextBuffer
 {
-    private const int MinimumStrongBoundaryLength = 8;
-    private const int MinimumSoftBoundaryLength = 32;
-    private const int MaximumChunkLength = 96;
+    private const int FirstChunkMinimumStrongBoundaryLength = 2;
+    private const int FirstChunkMinimumSoftBoundaryLength = 24;
+    private const int SubsequentMinimumStrongBoundaryLength = 8;
+    private const int SubsequentMinimumSoftBoundaryLength = 32;
+    private const int FirstChunkMaximumLength = 96;
+    private const int SubsequentPreferredChunkLength = 96;
+    private const int MaximumExtendedChunkLength = 128;
 
     private readonly StringBuilder _receivedText = new();
     private readonly StringBuilder _pendingText = new();
+    private bool _hasEmittedSpeechChunk;
 
     public IReadOnlyList<string> Append(string? text)
     {
@@ -159,7 +181,7 @@ internal sealed class StreamingTtsTextBuffer
         while (_pendingText.Length > 0)
         {
             var pending = _pendingText.ToString();
-            var cutIndex = FindSafeCutIndex(pending, isFinal);
+            var cutIndex = FindSafeCutIndex(pending, isFinal, !_hasEmittedSpeechChunk);
             if (cutIndex <= 0)
             {
                 break;
@@ -176,16 +198,30 @@ internal sealed class StreamingTtsTextBuffer
             if (normalized.Length > 0)
             {
                 result.Add(normalized);
+                _hasEmittedSpeechChunk = true;
             }
         }
 
         return result;
     }
 
-    private static int FindSafeCutIndex(string text, bool isFinal)
+    private static int FindSafeCutIndex(string text, bool isFinal, bool isFirstChunk)
     {
+        var minimumStrongBoundaryLength = isFirstChunk
+            ? FirstChunkMinimumStrongBoundaryLength
+            : SubsequentMinimumStrongBoundaryLength;
+        var minimumSoftBoundaryLength = isFirstChunk
+            ? FirstChunkMinimumSoftBoundaryLength
+            : SubsequentMinimumSoftBoundaryLength;
+        var maximumChunkLength = isFirstChunk
+            ? FirstChunkMaximumLength
+            : MaximumExtendedChunkLength;
+        var preferredFallbackLength = isFirstChunk
+            ? FirstChunkMaximumLength - 24
+            : SubsequentPreferredChunkLength;
         var visibleLength = 0;
         var lastPreferredCut = 0;
+        var lastPreferredCutVisibleLength = 0;
         var inCodeFence = false;
         var inHtmlTag = false;
         var inBareUrl = false;
@@ -206,6 +242,7 @@ internal sealed class StreamingTtsTextBuffer
                 {
                     inBareUrl = false;
                     lastPreferredCut = index + 1;
+                    lastPreferredCutVisibleLength = visibleLength;
                 }
 
                 continue;
@@ -216,11 +253,6 @@ internal sealed class StreamingTtsTextBuffer
             {
                 inCodeFence = !inCodeFence;
                 index += 2;
-                if (!inCodeFence)
-                {
-                    lastPreferredCut = index + 1;
-                }
-
                 continue;
             }
 
@@ -238,10 +270,6 @@ internal sealed class StreamingTtsTextBuffer
                 else if (text[index] == ')')
                 {
                     linkDestinationDepth--;
-                    if (linkDestinationDepth == 0)
-                    {
-                        lastPreferredCut = index + 1;
-                    }
                 }
 
                 continue;
@@ -284,26 +312,32 @@ internal sealed class StreamingTtsTextBuffer
                 visibleLength++;
             }
 
-            var strongBoundary = character is '。' or '！' or '？' or '；' or '.' or '!' or '?' or ';';
-            if (markdownLabelDepth == 0 && strongBoundary && visibleLength >= MinimumStrongBoundaryLength)
+            var strongBoundary = TtsTextNormalizer.IsStrongSpeechBoundary(character);
+            if (markdownLabelDepth == 0 && strongBoundary && visibleLength >= minimumStrongBoundaryLength)
             {
                 return index + 1;
             }
 
-            var softBoundary = character is '，' or ',' or '、' or '：' or ':' or '\n' or '\r';
-            if (softBoundary || char.IsWhiteSpace(character))
+            var softBoundary = TtsTextNormalizer.IsSoftSpeechBoundary(character);
+            if (markdownLabelDepth == 0 && (softBoundary || char.IsWhiteSpace(character)))
             {
                 lastPreferredCut = index + 1;
+                lastPreferredCutVisibleLength = visibleLength;
             }
 
-            if (markdownLabelDepth == 0 && softBoundary && visibleLength >= MinimumSoftBoundaryLength)
+            if (markdownLabelDepth == 0 && softBoundary && visibleLength >= minimumSoftBoundaryLength)
             {
                 return index + 1;
             }
 
-            if (markdownLabelDepth == 0 && visibleLength >= MaximumChunkLength)
+            if (markdownLabelDepth == 0 && visibleLength >= maximumChunkLength)
             {
-                return lastPreferredCut > 0 ? lastPreferredCut : index + 1;
+                // 首段保持 96 字上限，使第一段音频尽快进入播放队列。
+                // 后续段的 96 字只是期望值：继续等待标点至 128 字，再强制截断，
+                // 从而改善标点恰好比旧上限晚几个 token 到达时的句中断句。
+                return lastPreferredCutVisibleLength >= preferredFallbackLength
+                    ? lastPreferredCut
+                    : index + 1;
             }
         }
 

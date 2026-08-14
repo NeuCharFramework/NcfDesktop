@@ -6,6 +6,9 @@
 
     创建标识：Senparc - 20260807
 
+    修改标识：Senparc - 20260815
+    修改描述：v0.10.1 初始化与 Opened 时配置透明浮窗属性
+
 ----------------------------------------------------------------*/
 
 using System;
@@ -27,8 +30,10 @@ public partial class DesktopRobotGroupWindow : Window
     public DesktopRobotGroupWindow()
     {
         InitializeComponent();
+        FloatingWindowPlatformService.ConfigureTransparentWindow(this);
         Opened += (_, _) =>
         {
+            FloatingWindowPlatformService.ConfigureTransparentWindow(this);
             if (!_hasInitialPosition)
             {
                 PositionNearWorkingAreaCorner();

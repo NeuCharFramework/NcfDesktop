@@ -9,6 +9,9 @@
     修改标识：Senparc - 20260812
     修改描述：v0.10.0 完善桌面端唤醒词会话激活与中英文提示
 
+    修改标识：Senparc - 20260815
+    修改描述：v0.10.1 支持 Hide 后重新 Show 时刷新 macOS 原生透明
+
 ----------------------------------------------------------------*/
 
 using System;
@@ -50,9 +53,40 @@ internal static class FloatingWindowPlatformService
         else if (OperatingSystem.IsMacOS())
         {
             // macOS 的 Avalonia Native 透明窗口需要把客户区扩展到无边框区域。
-            // 交由 Avalonia 设置真正的透明 surface，不再覆盖 NSWindow 背景属性。
+            // 透明 surface 由 Avalonia 创建，原生 NSWindow 属性由下方刷新逻辑保持同步。
             window.ExtendClientAreaToDecorationsHint = true;
             window.ExtendClientAreaChromeHints = ExtendClientAreaChromeHints.NoChrome;
+        }
+
+        RefreshMacOsTransparency(window);
+    }
+
+    /// <summary>
+    /// 窗口从 Hide 状态重新显示后，重新同步 macOS 原生透明属性。
+    /// Avalonia 的透明 surface 仍由窗口属性负责创建；这里仅修正 NSWindow
+    /// 在多个透明顶层窗口来回显示时可能恢复的 opaque/background 状态。
+    /// </summary>
+    public static void RefreshNativeTransparency(Window window)
+    {
+        RefreshMacOsTransparency(window);
+    }
+
+    private static void RefreshMacOsTransparency(Window window)
+    {
+        if (!OperatingSystem.IsMacOS() || !TryGetNativeWindow(window, out var nativeWindow))
+        {
+            return;
+        }
+
+        try
+        {
+            nativeWindow.IsOpaque = false;
+            nativeWindow.HasShadow = false;
+            nativeWindow.BackgroundColor = NSColor.Clear;
+        }
+        catch (Exception)
+        {
+            // Avalonia Native 以外的 macOS 后端允许安全降级。
         }
     }
 

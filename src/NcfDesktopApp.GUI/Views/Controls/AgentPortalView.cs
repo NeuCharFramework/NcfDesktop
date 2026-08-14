@@ -8,9 +8,12 @@
 
     修改标识：Senparc - 20260810
     修改描述：基于 AgentsManager 实时快照绘制工作组、Agent、协作连线和工作态数据流
-    
+
     修改标识：Senparc - 20260812
     修改描述：v0.10.0 完善桌面端唤醒词会话激活与中英文提示
+
+    修改标识：Senparc - 20260815
+    修改描述：v0.10.1 渲染边界对重复 Agent/工作组 Id 做防御性去重
 
 ----------------------------------------------------------------*/
 
@@ -362,8 +365,14 @@ public sealed class AgentPortalView : Control
 
     private static IReadOnlyList<PortalWorkLane> CreateExecutionLanes(AgentPortalRenderGraph graph)
     {
-        var agentsById = graph.Agents.ToDictionary(item => item.Id);
-        var groupsById = graph.Groups.ToDictionary(item => item.Id);
+        // 图通常来自 AgentPortalRenderGraphProjection，那里已对服务端重复实体去重。
+        // 仍在渲染边界做一次防御，避免任意异常快照或未来调用方把 UI 线程带崩。
+        var agentsById = graph.Agents
+            .GroupBy(item => item.Id)
+            .ToDictionary(group => group.Key, group => group.First());
+        var groupsById = graph.Groups
+            .GroupBy(item => item.Id)
+            .ToDictionary(group => group.Key, group => group.First());
         var lanes = new List<PortalWorkLane>();
 
         foreach (var collaboration in graph.Collaborations)

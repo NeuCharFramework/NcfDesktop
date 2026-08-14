@@ -5,9 +5,12 @@
     文件功能描述：将 AgentsManager 只读快照投影为桌面门户的安全实时拓扑
 
     创建标识：Senparc - 20260810
-    
+
     修改标识：Senparc - 20260812
     修改描述：v0.10.0 完善桌面端唤醒词会话激活与中英文提示
+
+    修改标识：Senparc - 20260815
+    修改描述：v0.10.1 对 AgentsManager 快照重复实体按稳定 Id 去重
 
 ----------------------------------------------------------------*/
 
@@ -131,7 +134,10 @@ public static class AgentPortalRenderGraphProjection
             .GroupBy(item => item.AgentId)
             .ToDictionary(group => group.Key, group => group.Select(item => item.Status).ToArray());
 
+        // AgentsManager 的图快照来自多张成员关系表；服务端出现重复实体时，门户应保留
+        // 第一个稳定实体而不是把同一 Id 交给渲染层。后者会在按 Id 建索引时终止整个 UI 进程。
         var selectedAgents = snapshot.Agents
+            .DistinctBy(agent => agent.Id)
             .Select(agent => new
             {
                 Agent = agent,
@@ -146,7 +152,9 @@ public static class AgentPortalRenderGraphProjection
             .ToArray();
         var visibleAgentIds = selectedAgents.Select(item => item.Agent.Id).ToHashSet();
 
+        // 与 Agent 同理，工作组重复不应导致重复的摘要、连线或渲染索引。
         var selectedGroups = snapshot.Groups
+            .DistinctBy(group => group.Id)
             .Select(group => new
             {
                 Group = group,
@@ -181,6 +189,7 @@ public static class AgentPortalRenderGraphProjection
             .ToArray();
         var links = snapshot.Links
             .Where(item => visibleGroupIds.Contains(item.GroupId) && visibleAgentIds.Contains(item.AgentId))
+            .DistinctBy(item => (item.GroupId, item.AgentId))
             .Select(item =>
             {
                 var states = collaborationStatesByAgent.GetValueOrDefault(item.AgentId, []);
@@ -194,11 +203,12 @@ public static class AgentPortalRenderGraphProjection
             .ToArray();
         var collaborations = activeCollaborations
             .Where(item => visibleGroupIds.Contains(item.GroupId))
+            .DistinctBy(item => (item.TaskId, item.GroupId))
             .Select(item => new AgentPortalRenderCollaboration(
                 item.TaskId,
                 item.GroupId,
                 NormalizeLabel(item.TaskName, $"协作任务 {item.TaskId}"),
-                item.AgentIds.Where(visibleAgentIds.Contains).ToArray(),
+                item.AgentIds.Where(visibleAgentIds.Contains).Distinct().ToArray(),
                 StateFromTaskStatus(item.Status)))
             .ToArray();
 

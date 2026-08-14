@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
-    <Version>0.3.3</Version>
+    <Version>0.3.4</Version>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -29,6 +29,10 @@
       [2026-08-12] v0.3.3 扩展唤醒词会话激活与 Agent Portal、语音端点测试
       1、覆盖 macOS 当前会话唤醒词激活策略、监听状态及语音端点检测行为
       2、补充 Agent Portal 投影、AdminChat 会话刷新、桌面设置和本地模型目录的稳定性回归验证
+      [2026-08-15] v0.3.4 扩展风噪端点、流式 TTS 分段与 Agent Portal 去重测试
+      1、覆盖低频风噪、讲话后变大的背景噪声、最长讲话时长及语音频带自适应底噪行为
+      2、验证流式朗读首段早边界、后续段标点等待与扩展上限强制截断
+      3、验证 Agent Portal 对重复快照实体的去重投影
     </PackageReleaseNotes>
   </PropertyGroup>
 
