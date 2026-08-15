@@ -41,6 +41,9 @@ internal static class FloatingWindowPlatformService
     public static void ConfigureTransparentWindow(Window window)
     {
         window.Background = Brushes.Transparent;
+        // Avalonia 在平台暂时回报不支持透明时会显示默认的白色 fallback border。
+        // 桌面宠物是无边框覆盖层，fallback 也必须保持透明，不能随 Hide/Show 露出白底。
+        window.TransparencyBackgroundFallback = Brushes.Transparent;
         window.SystemDecorations = SystemDecorations.None;
         window.TransparencyLevelHint = [WindowTransparencyLevel.Transparent];
 

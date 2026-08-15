@@ -17,6 +17,7 @@
         Topmost="True"
         SystemDecorations="None"
         TransparencyLevelHint="Transparent"
+        TransparencyBackgroundFallback="Transparent"
         Background="Transparent"
         ExtendClientAreaToDecorationsHint="True"
         ExtendClientAreaChromeHints="NoChrome">

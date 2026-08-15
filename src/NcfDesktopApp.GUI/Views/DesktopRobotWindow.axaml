@@ -15,6 +15,7 @@
         Topmost="True"
         SystemDecorations="None"
         TransparencyLevelHint="Transparent"
+        TransparencyBackgroundFallback="Transparent"
         Background="Transparent">
 
     <Canvas x:Name="RootSurface"
