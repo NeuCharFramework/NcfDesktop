@@ -221,6 +221,16 @@ publish_platform() {
                 if [[ $platform == linux-* ]]; then
                     chmod +x "$renamed_exe"
                     echo -e "${GREEN}   ✅ 已设置Linux可执行权限${NC}"
+
+                    # 附带 Linux 特殊环境启动器（Spark / Wayland / NVIDIA）
+                    local launcher_src="$BUILD_TOOL_DIR/run-ncf-desktop.sh"
+                    if [ -f "$launcher_src" ]; then
+                        cp "$launcher_src" "$platform_dir/run-ncf-desktop.sh"
+                        chmod +x "$platform_dir/run-ncf-desktop.sh"
+                        echo -e "${GREEN}   ✅ 已附带 run-ncf-desktop.sh 启动器${NC}"
+                    else
+                        echo -e "${YELLOW}   ⚠️  未找到 run-ncf-desktop.sh，跳过启动器复制${NC}"
+                    fi
                 fi
             fi
             

@@ -206,7 +206,24 @@ publish-self-contained/
 ├── osx-x64/
 ├── osx-arm64/
 ├── linux-x64/
+│   ├── NcfDesktopApp.GUI-linux-x64
+│   └── run-ncf-desktop.sh          # Linux 环境检测启动器
 └── linux-arm64/
+    ├── NcfDesktopApp.GUI-linux-arm64
+    └── run-ncf-desktop.sh          # 推荐在 NVIDIA Spark / Wayland 上用此脚本启动
+```
+
+#### Linux 特殊环境启动（NVIDIA DGX Spark / Wayland）
+
+不要直接双击二进制；在发布目录中运行：
+
+```bash
+cd publish-self-contained/linux-arm64   # 或 linux-x64
+chmod +x run-ncf-desktop.sh
+./run-ncf-desktop.sh                   # 自动检测并选用软件渲染等策略
+./run-ncf-desktop.sh --check           # 只检查环境
+./run-ncf-desktop.sh --software        # 强制软件渲染（窗口透明时优先）
+./run-ncf-desktop.sh --gpu             # 尝试 GPU 渲染
 ```
 
 普通（框架依赖）版本仍保存在 `publish` 文件夹。
