@@ -1,4 +1,6 @@
+using System;
 using System.Collections.Generic;
+using System.Text.Json;
 using NcfDesktopApp.GUI.Models;
 using NcfDesktopApp.GUI.Services;
 using NcfDesktopApp.GUI.Views;
@@ -15,6 +17,23 @@ public sealed class DesktopUserSettingsTests
         var settings = new DesktopUserSettings();
 
         Assert.IsFalse(settings.SttAutoSend);
+    }
+
+    [TestMethod]
+    public void WakeWordConfiguration_DoesNotPersistTransientSelectedChat()
+    {
+        var configuration = new WakeWordConfiguration
+        {
+            Phrase = "小助手",
+            Pinyin = "xiǎo zhù shǒu",
+            SelectedTargetSession = new WakeWordChatSessionOption(12, "工作 Chat")
+        };
+
+        var json = JsonSerializer.Serialize(configuration);
+
+        Assert.IsFalse(json.Contains("selectedTargetSession", StringComparison.Ordinal));
+        StringAssert.Contains(json, "TargetSessionId");
+        Assert.AreEqual(12, configuration.TargetSessionId);
     }
 
     [TestMethod]

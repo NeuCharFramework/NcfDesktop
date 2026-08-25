@@ -77,6 +77,7 @@ internal sealed class LocalWakeWordService : ILocalWakeWordService, IDisposable
     private Recorder? _recorder;
     private KeywordSpotter? _loadedSpotter;
     private string _loadedModelDirectory = string.Empty;
+    private string _loadedKeywordsPath = string.Empty;
     private OnlineStream? _stream;
     private CancellationTokenSource? _decoderCts;
     private Task? _decoderTask;
@@ -413,7 +414,12 @@ internal sealed class LocalWakeWordService : ILocalWakeWordService, IDisposable
                 }
 
                 _decoderTask = Task.Run(
-                    () => DecodeLoopAsync(owner, spotter, stream, decoderCts.Token),
+                    () => DecodeLoopAsync(
+                        owner,
+                        spotter,
+                        stream,
+                        files.KeywordDefinitions,
+                        decoderCts.Token),
                     CancellationToken.None);
                 captureDevice.Start();
                 var startResult = recorder.StartRecording();
@@ -575,6 +581,7 @@ internal sealed class LocalWakeWordService : ILocalWakeWordService, IDisposable
         Guid owner,
         KeywordSpotter spotter,
         OnlineStream stream,
+        IReadOnlyDictionary<string, WakeWordKeywordDefinition>? keywordDefinitions,
         CancellationToken cancellationToken)
     {
         try
@@ -604,9 +611,15 @@ internal sealed class LocalWakeWordService : ILocalWakeWordService, IDisposable
                             spotter.Reset(stream);
                             if (Interlocked.Exchange(ref _keywordTriggered, 1) == 0)
                             {
+                                var alias = NormalizeKeywordAlias(result.Keyword);
+                                var phrase = keywordDefinitions != null &&
+                                             keywordDefinitions.TryGetValue(alias, out var definition)
+                                    ? definition.Phrase
+                                    : result.Keyword;
                                 PublishKeywordDetected(new WakeWordDetectedEvent(
                                     owner,
-                                    WakeWordModelCatalog.WakePhraseDisplay,
+                                    alias,
+                                    phrase,
                                     DateTimeOffset.Now));
                             }
 
@@ -677,7 +690,8 @@ internal sealed class LocalWakeWordService : ILocalWakeWordService, IDisposable
     private KeywordSpotter GetOrLoadSpotter(WakeWordModelFiles files)
     {
         if (_loadedSpotter != null &&
-            string.Equals(_loadedModelDirectory, files.RootDirectory, StringComparison.OrdinalIgnoreCase))
+            string.Equals(_loadedModelDirectory, files.RootDirectory, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(_loadedKeywordsPath, files.Keywords, StringComparison.OrdinalIgnoreCase))
         {
             return _loadedSpotter;
         }
@@ -700,7 +714,14 @@ internal sealed class LocalWakeWordService : ILocalWakeWordService, IDisposable
         config.KeywordsFile = files.Keywords;
         _loadedSpotter = new KeywordSpotter(config);
         _loadedModelDirectory = files.RootDirectory;
+        _loadedKeywordsPath = files.Keywords;
         return _loadedSpotter;
+    }
+
+    private static string NormalizeKeywordAlias(string keyword)
+    {
+        var normalized = (keyword ?? string.Empty).Trim();
+        return normalized.StartsWith('@') ? normalized[1..] : normalized;
     }
 
     private void PrepareCaptureBuffers()
@@ -900,6 +921,10 @@ internal sealed class LocalWakeWordService : ILocalWakeWordService, IDisposable
     }
 }
 
-internal sealed record WakeWordDetectedEvent(Guid Owner, string Phrase, DateTimeOffset DetectedAt);
+internal sealed record WakeWordDetectedEvent(
+    Guid Owner,
+    string KeywordId,
+    string Phrase,
+    DateTimeOffset DetectedAt);
 
 internal sealed record WakeWordServiceFailure(Guid Owner, Exception Exception);

@@ -16,7 +16,12 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
 using System.IO;
+using hyjiacan.py4n;
+using NcfDesktopApp.GUI.Models;
 
 namespace NcfDesktopApp.GUI.Services;
 
@@ -27,6 +32,7 @@ internal static class WakeWordModelCatalog
 
     public const string WakePhraseDisplay = "你好 Cici";
     public const string WakePhrasePronunciation = "你好西西";
+    public const string WakePhrasePinyin = "nǐ hǎo xī xī";
     public const string ModelId = "sherpa-onnx-kws-zipformer-wenetspeech-3.3M-2024-01-01-int8";
     public const string ArchiveFileName = "sherpa-onnx-kws-zipformer-wenetspeech-3.3M-2024-01-01.tar.bz2";
     public const string DownloadUrl =
@@ -84,21 +90,11 @@ internal static class WakeWordModelCatalog
                     "唤醒模型文件体积异常，可能下载或解压不完整，请重新下载。");
             }
 
-            var keywords = File.ReadAllText(files.Keywords);
-            if (!string.Equals(keywords, KeywordsFileContent, StringComparison.Ordinal))
-            {
-                return new WakeWordModelReadiness(
-                    false,
-                    directory,
-                    null,
-                    "唤醒词配置与当前应用版本不一致，请重新下载模型。");
-            }
-
             return new WakeWordModelReadiness(
                 true,
                 directory,
                 files,
-                $"固定唤醒词“{WakePhraseDisplay}”（读作“{WakePhrasePronunciation}”）已就绪。");
+                "唤醒模型已就绪，可使用自定义唤醒词。");
         }
         catch (Exception ex)
         {
@@ -127,9 +123,357 @@ internal static class WakeWordModelCatalog
                File.Exists(joiner) &&
                File.Exists(tokens) &&
                File.Exists(keywords)
-            ? new WakeWordModelFiles(directory, encoder, decoder, joiner, tokens, keywords)
+            ? new WakeWordModelFiles(
+                directory,
+                encoder,
+                decoder,
+                joiner,
+                tokens,
+                keywords,
+                new Dictionary<string, WakeWordKeywordDefinition>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["legacy"] = new("legacy", WakePhraseDisplay)
+                })
             : null;
     }
+
+    public static WakeWordConfiguration CreateDefaultConfiguration()
+    {
+        return new WakeWordConfiguration
+        {
+            Phrase = WakePhraseDisplay,
+            Pinyin = WakePhrasePinyin,
+            IsDefault = true,
+            IsEnabled = true,
+            Action = WakeWordActionKind.ChatSession
+        };
+    }
+
+    public static WakeWordConfiguredModel BuildConfiguredFiles(
+        string directory,
+        IReadOnlyList<WakeWordConfiguration> configurations,
+        string? activeKeywordsDirectory = null)
+    {
+        var baseFiles = ResolveFiles(directory);
+        if (baseFiles == null)
+        {
+            return new WakeWordConfiguredModel(
+                false,
+                null,
+                EvaluateDirectory(directory).Message,
+                Array.Empty<WakeWordConfigurationValidation>());
+        }
+
+        var vocabulary = LoadVocabulary(baseFiles.Tokens);
+        var lines = new List<string>();
+        var keywordDefinitions = new Dictionary<string, WakeWordKeywordDefinition>(
+            StringComparer.OrdinalIgnoreCase);
+        var validations = new List<WakeWordConfigurationValidation>();
+        var seenPhrases = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var configuration in configurations.Where(configuration => configuration != null))
+        {
+            var phrase = configuration.Phrase?.Trim() ?? string.Empty;
+            if (!configuration.IsEnabled)
+            {
+                validations.Add(new WakeWordConfigurationValidation(
+                    configuration.Id,
+                    true,
+                    "此唤醒词已关闭。",
+                    configuration.Pinyin?.Trim() ?? string.Empty));
+                continue;
+            }
+
+            if (phrase.Length == 0)
+            {
+                validations.Add(new WakeWordConfigurationValidation(
+                    configuration.Id,
+                    false,
+                    "唤醒短语不能为空，已跳过该词条。",
+                    string.Empty));
+                continue;
+            }
+
+            if (!seenPhrases.Add(phrase))
+            {
+                validations.Add(new WakeWordConfigurationValidation(
+                    configuration.Id,
+                    false,
+                    "与另一条已启用的唤醒短语重复，已跳过该词条。",
+                    configuration.Pinyin?.Trim() ?? string.Empty));
+                continue;
+            }
+
+            var alias = GetKeywordAlias(configuration);
+            if (!TryBuildKeywordLine(
+                    configuration,
+                    alias,
+                    vocabulary,
+                    out var line,
+                    out var effectivePinyin,
+                    out var error))
+            {
+                validations.Add(new WakeWordConfigurationValidation(
+                    configuration.Id,
+                    false,
+                    error,
+                    effectivePinyin));
+                continue;
+            }
+
+            lines.Add(line);
+            keywordDefinitions[alias] = new WakeWordKeywordDefinition(alias, phrase);
+            validations.Add(new WakeWordConfigurationValidation(
+                configuration.Id,
+                true,
+                "已加入本机唤醒监听。",
+                effectivePinyin));
+        }
+
+        if (lines.Count == 0)
+        {
+            return new WakeWordConfiguredModel(
+                false,
+                null,
+                "没有有效的唤醒词，请修正标记为错误的词条。",
+                validations);
+        }
+
+        var content = string.Join(Environment.NewLine, lines) + Environment.NewLine;
+        var fingerprint = Convert.ToHexString(
+                SHA256.HashData(Encoding.UTF8.GetBytes(content)))
+            .ToLowerInvariant()[..16];
+        var outputDirectory = string.IsNullOrWhiteSpace(activeKeywordsDirectory)
+            ? ModelsDirectory
+            : activeKeywordsDirectory;
+        var keywordPath = Path.Combine(outputDirectory, $".keywords-{fingerprint}.txt");
+        Directory.CreateDirectory(outputDirectory);
+        File.WriteAllText(keywordPath, content, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+
+        return new WakeWordConfiguredModel(
+            true,
+            baseFiles with
+            {
+                Keywords = keywordPath,
+                KeywordDefinitions = keywordDefinitions
+            },
+            validations.Any(validation => !validation.IsValid)
+                ? $"已加载 {keywordDefinitions.Count} 个唤醒词；无效词条已跳过，不影响其他唤醒词。"
+                : $"已加载 {keywordDefinitions.Count} 个自定义唤醒词。",
+            validations);
+    }
+
+    internal static bool TryGetSuggestedPinyin(
+        string? phrase,
+        out string pinyin,
+        out string error) =>
+        TryDeriveChinesePinyin(phrase?.Trim() ?? string.Empty, out pinyin, out error);
+
+    internal static bool HasToneInformation(string? pinyin) =>
+        !string.IsNullOrWhiteSpace(pinyin) && ContainsToneInformation(pinyin);
+
+    private static bool TryBuildKeywordLine(
+        WakeWordConfiguration configuration,
+        string alias,
+        IReadOnlySet<string> vocabulary,
+        out string line,
+        out string effectivePinyin,
+        out string error)
+    {
+        line = string.Empty;
+        effectivePinyin = string.Empty;
+        error = string.Empty;
+        var phrase = configuration.Phrase.Trim();
+        var pinyin = configuration.Pinyin?.Trim();
+        var canDerivePinyin = TryDeriveChinesePinyin(phrase, out var derivedPinyin, out var derivationError);
+        if (string.IsNullOrWhiteSpace(pinyin))
+        {
+            if (!canDerivePinyin)
+            {
+                error = derivationError;
+                return false;
+            }
+
+            pinyin = derivedPinyin;
+        }
+        else if (!ContainsToneInformation(pinyin) && canDerivePinyin)
+        {
+            // 中文短语的无声调手填拼音无法直接匹配声调词表，优先从原文推导。
+            pinyin = derivedPinyin;
+        }
+
+        effectivePinyin = pinyin;
+        var modelTokens = new List<string>();
+        foreach (var syllable in pinyin
+                     .Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)
+                     .Select(NormalizeManualPinyinSyllable))
+        {
+            if (!TryTokenizeSyllable(syllable, vocabulary, modelTokens))
+            {
+                effectivePinyin = string.Join(' ', pinyin
+                    .Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)
+                    .Select(NormalizeManualPinyinSyllable));
+                error = $"“{syllable}”不在当前唤醒模型词表中，请填写带声调拼音，例如 nǐ hǎo。";
+                return false;
+            }
+        }
+
+        if (modelTokens.Count == 0)
+        {
+            error = "没有生成有效的拼音音素。";
+            return false;
+        }
+
+        effectivePinyin = string.Join(' ', pinyin
+            .Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)
+            .Select(NormalizeManualPinyinSyllable));
+        line = $"{string.Join(' ', modelTokens)} :1.5 #0.35 @{alias}";
+        return true;
+    }
+
+    private static bool TryDeriveChinesePinyin(
+        string phrase,
+        out string pinyin,
+        out string error)
+    {
+        var syllables = new List<string>();
+        foreach (var character in phrase)
+        {
+            if (char.IsWhiteSpace(character) || char.IsPunctuation(character))
+            {
+                continue;
+            }
+
+            if (!PinyinUtil.IsHanzi(character))
+            {
+                pinyin = string.Empty;
+                error = "包含非中文字符，请在“拼音”字段填写对应的带声调拼音。";
+                return false;
+            }
+
+            try
+            {
+                var generatedPinyin = Pinyin4Net.GetFirstPinyin(
+                    character,
+                    PinyinFormat.WITH_TONE_MARK |
+                    PinyinFormat.LOWERCASE |
+                    PinyinFormat.WITH_U_UNICODE);
+                syllables.Add(NormalizeKwsToneMarks(generatedPinyin));
+            }
+            catch (Exception ex)
+            {
+                pinyin = string.Empty;
+                error = $"字符“{character}”没有可用拼音：{ex.Message}";
+                return false;
+            }
+        }
+
+        pinyin = string.Join(' ', syllables);
+        error = pinyin.Length == 0 ? "没有可转换的中文短语。" : string.Empty;
+        return pinyin.Length > 0;
+    }
+
+    private static bool ContainsToneInformation(string pinyin)
+    {
+        return pinyin.Any(character =>
+            character is >= '1' and <= '5' ||
+            "āáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜ".Contains(character));
+    }
+
+    private static string NormalizeManualPinyinSyllable(string value)
+    {
+        var syllable = value.Trim().ToLowerInvariant();
+        var normalized = syllable.Length > 0 &&
+                         syllable[^1] is >= '1' and <= '5'
+            ? PinyinUtil.Format(
+                syllable,
+                PinyinFormat.WITH_TONE_MARK |
+                PinyinFormat.LOWERCASE |
+                PinyinFormat.WITH_U_UNICODE)
+            : syllable;
+        return NormalizeKwsToneMarks(normalized);
+    }
+
+    private static string NormalizeKwsToneMarks(string pinyin)
+    {
+        return pinyin
+            .Replace('ă', 'ǎ')
+            .Replace('ĕ', 'ě')
+            .Replace('ĭ', 'ǐ')
+            .Replace('ŏ', 'ǒ')
+            .Replace('ŭ', 'ǔ');
+    }
+
+    private static bool TryTokenizeSyllable(
+        string syllable,
+        IReadOnlySet<string> vocabulary,
+        ICollection<string> output)
+    {
+        if (vocabulary.Contains(syllable))
+        {
+            output.Add(syllable);
+            return true;
+        }
+
+        foreach (var initial in Initials)
+        {
+            if (!syllable.StartsWith(initial, StringComparison.Ordinal) ||
+                syllable.Length == initial.Length)
+            {
+                continue;
+            }
+
+            var final = syllable[initial.Length..];
+            if (!vocabulary.Contains(initial) || !vocabulary.Contains(final))
+            {
+                continue;
+            }
+
+            output.Add(initial);
+            output.Add(final);
+            return true;
+        }
+
+        return false;
+    }
+
+    private static HashSet<string> LoadVocabulary(string tokensPath)
+    {
+        var vocabulary = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var line in File.ReadLines(tokensPath))
+        {
+            var separator = line.LastIndexOf(' ');
+            if (separator <= 0)
+            {
+                continue;
+            }
+
+            var token = line[..separator].Trim();
+            if (token.Length > 0)
+            {
+                vocabulary.Add(token);
+            }
+        }
+
+        return vocabulary;
+    }
+
+    internal static string GetKeywordAlias(WakeWordConfiguration configuration)
+    {
+        var id = string.IsNullOrWhiteSpace(configuration.Id)
+            ? Guid.NewGuid().ToString("N")
+            : configuration.Id.Trim();
+        var safe = new string(id
+            .Where(character => char.IsLetterOrDigit(character) || character == '_')
+            .ToArray());
+        return $"wake_{(safe.Length > 24 ? safe[..24] : safe)}";
+    }
+
+    private static readonly string[] Initials =
+    [
+        "zh", "ch", "sh",
+        "b", "p", "m", "f", "d", "t", "n", "l", "g", "k", "h",
+        "j", "q", "x", "r", "z", "c", "s", "y", "w"
+    ];
 }
 
 internal static class WakeWordListeningPolicy
@@ -148,8 +492,7 @@ internal static class WakeWordListeningPolicy
                wakeModelReady &&
                voiceModelReady &&
                adminChatActive &&
-               // 流式自动朗读会在回复尚未完全结束时播放；此时允许用户用唤醒词打断朗读。
-               (!adminChatBusy || ttsPlaying) &&
+               // Agent 回复期间仍保留唤醒监听；新的语音指令会在当前回复结束后排队发送。
                !voiceInputBusy &&
                !workspaceDisposed;
     }
@@ -161,7 +504,22 @@ internal sealed record WakeWordModelFiles(
     string Decoder,
     string Joiner,
     string Tokens,
-    string Keywords);
+    string Keywords,
+    IReadOnlyDictionary<string, WakeWordKeywordDefinition>? KeywordDefinitions = null);
+
+internal sealed record WakeWordKeywordDefinition(string Alias, string Phrase);
+
+internal sealed record WakeWordConfiguredModel(
+    bool IsReady,
+    WakeWordModelFiles? Files,
+    string Message,
+    IReadOnlyList<WakeWordConfigurationValidation> Validations);
+
+internal sealed record WakeWordConfigurationValidation(
+    string ConfigurationId,
+    bool IsValid,
+    string Message,
+    string EffectivePinyin);
 
 internal sealed record WakeWordModelReadiness(
     bool IsReady,

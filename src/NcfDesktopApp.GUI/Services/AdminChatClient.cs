@@ -837,6 +837,15 @@ public sealed class AdminChatClient
 
     private string GetRequiredAccessToken()
     {
+        if (_authentication is { ExpiresUtc: { } expiresUtc } &&
+            expiresUtc <= DateTimeOffset.UtcNow.AddSeconds(10))
+        {
+            ClearAuthentication();
+            throw new AdminChatApiException(
+                $"管理员 JWT 已于 {expiresUtc.LocalDateTime:yyyy-MM-dd HH:mm:ss} 过期，请重新登录。",
+                true);
+        }
+
         if (!IsAuthenticated || _authentication == null)
         {
             ClearAuthentication();

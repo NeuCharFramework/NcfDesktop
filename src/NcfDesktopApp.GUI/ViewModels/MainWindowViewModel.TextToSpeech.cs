@@ -33,6 +33,7 @@ namespace NcfDesktopApp.GUI.ViewModels;
 public partial class MainWindowViewModel
 {
     private readonly ILocalTextToSpeechService _ttsService = LocalTextToSpeechService.Shared;
+    private readonly LocalTextToSpeechService _wakeFeedbackTtsService = new();
     private CancellationTokenSource? _ttsPlaybackCts;
     private CancellationTokenSource? _ttsModelDownloadCts;
     private int? _speakingMessageId;
@@ -637,6 +638,48 @@ public partial class MainWindowViewModel
         }
     }
 
+    /// <summary>
+    /// 唤醒反馈使用独立的短语播放实例，并以 fire-and-forget 方式执行；
+    /// 不修改主 TTS 状态，也不阻塞录音、转写或 AdminChat 流程。
+    /// </summary>
+    internal void SpeakWakeWordFeedback(string stage)
+    {
+        if (_workspaceAudioDisposed)
+        {
+            return;
+        }
+
+        var readiness = TtsModelCatalog.Evaluate(SelectedTtsModel, TtsCustomModelPath);
+        if (!readiness.IsReady || readiness.Files == null)
+        {
+            return;
+        }
+
+        var phrase = WakeWordQuickReplyCatalog.Pick(stage, LocalizationService.Instance.IsEnglish);
+        _ = SpeakWakeWordFeedbackAsync(readiness.Files, phrase);
+    }
+
+    private async Task SpeakWakeWordFeedbackAsync(TtsModelFiles files, string phrase)
+    {
+        try
+        {
+            await _wakeFeedbackTtsService.PlayAsync(
+                files,
+                phrase,
+                SelectedTtsVoice?.SpeakerId ?? 45,
+                (float)TtsSpeed,
+                CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            // 工作台关闭时的正常取消。
+        }
+        catch (Exception ex)
+        {
+            AddLog($"ℹ️ 唤醒快速反馈未播放：{ex.Message}");
+        }
+    }
+
     internal void CancelActiveStreamingAutoRead()
     {
         bool hasActiveStream;
@@ -742,6 +785,7 @@ public partial class MainWindowViewModel
         _voiceInputService.AutoStopRequested -= OnVoiceRecordingAutoStopRequested;
         _voiceInputService.SpeechDetected -= OnVoiceRecordingSpeechDetected;
         _ttsService.VisualizationFrameAvailable -= OnTtsVisualizationFrame;
+        _wakeFeedbackTtsService.Dispose();
         _audioServicesInitialized = false;
     }
 

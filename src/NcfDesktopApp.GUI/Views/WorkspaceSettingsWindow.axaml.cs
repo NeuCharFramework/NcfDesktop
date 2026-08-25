@@ -12,8 +12,11 @@
 ----------------------------------------------------------------*/
 
 using System;
+using System.Linq;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using Avalonia.VisualTree;
+using NcfDesktopApp.GUI.Models;
 using NcfDesktopApp.GUI.Services;
 using NcfDesktopApp.GUI.ViewModels;
 
@@ -40,5 +43,53 @@ public partial class WorkspaceSettingsWindow : Window
     private void CloseButton_OnClick(object? sender, RoutedEventArgs e)
     {
         Close();
+    }
+
+    private void WakeWordRemoveButton_OnClick(object? sender, RoutedEventArgs e)
+    {
+        if (sender is Button { DataContext: WakeWordConfiguration configuration } &&
+            DataContext is MainWindowViewModel viewModel)
+        {
+            viewModel.RemoveWakeWordCommand.Execute(configuration);
+        }
+    }
+
+    private void WakeWordAutoPinyinButton_OnClick(object? sender, RoutedEventArgs e)
+    {
+        if (sender is Button { DataContext: WakeWordConfiguration configuration } &&
+            DataContext is MainWindowViewModel viewModel)
+        {
+            viewModel.RegenerateWakeWordPinyin(configuration);
+        }
+    }
+
+    private void WakePinyinSymbolButton_OnClick(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: string symbol } button || string.IsNullOrEmpty(symbol))
+        {
+            return;
+        }
+
+        var itemRoot = button.GetVisualAncestors()
+            .OfType<Border>()
+            .FirstOrDefault(border => string.Equals(border.Tag as string, "WakeWordItem", StringComparison.Ordinal));
+        var pinyinInput = itemRoot?
+            .GetVisualDescendants()
+            .OfType<TextBox>()
+            .FirstOrDefault(textBox => string.Equals(textBox.Tag as string, "WakePinyinInput", StringComparison.Ordinal));
+        if (pinyinInput == null)
+        {
+            return;
+        }
+
+        var text = pinyinInput.Text ?? string.Empty;
+        var start = Math.Clamp(pinyinInput.SelectionStart, 0, text.Length);
+        var end = Math.Clamp(pinyinInput.SelectionEnd, start, text.Length);
+        pinyinInput.Text = $"{text[..start]}{symbol}{text[end..]}";
+        pinyinInput.CaretIndex = start + symbol.Length;
+        pinyinInput.SelectionStart = pinyinInput.CaretIndex;
+        pinyinInput.SelectionEnd = pinyinInput.CaretIndex;
+        pinyinInput.Focus();
+        e.Handled = true;
     }
 }

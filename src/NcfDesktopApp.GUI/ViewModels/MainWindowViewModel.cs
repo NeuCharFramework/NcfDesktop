@@ -804,6 +804,7 @@ public partial class MainWindowViewModel : ViewModelBase
         OnPropertyChanged(nameof(LaunchConfigurationSummary));
         OnPropertyChanged(nameof(LatestVersionDisplay));
         OnPropertyChanged(nameof(WakePhraseLabel));
+        OnPropertyChanged(nameof(WakeWordEnableLabel));
         OnPropertyChanged(nameof(VoiceModelOptions));
         OnPropertyChanged(nameof(TtsModelOptions));
         OnPropertyChanged(nameof(TtsVoiceOptions));
@@ -894,6 +895,7 @@ public partial class MainWindowViewModel : ViewModelBase
             VoiceLanguage = VoiceLanguage,
             SttAutoSend = SttAutoSend,
             WakeWordEnabled = WakeWordEnabled,
+            WakeWords = WakeWordConfigurations.ToList(),
             TtsModelId = SelectedTtsModel?.Id ?? string.Empty,
             TtsCustomModelPath = TtsCustomModelPath,
             TtsSpeakerId = SelectedTtsVoice?.SpeakerId ?? 45,
@@ -1976,6 +1978,7 @@ public partial class MainWindowViewModel : ViewModelBase
                 SelectedVoiceModel = VoiceModelCatalog.FindById(desktopSettings.VoiceModelId);
                 SttAutoSend = desktopSettings.SttAutoSend;
                 WakeWordEnabled = desktopSettings.WakeWordEnabled;
+                LoadWakeWordConfigurations(desktopSettings.WakeWords);
                 TtsCustomModelPath = desktopSettings.TtsCustomModelPath ?? string.Empty;
                 SelectedTtsModel = TtsModelCatalog.FindById(desktopSettings.TtsModelId);
                 SelectedTtsVoice = TtsModelCatalog.FindVoice(desktopSettings.TtsSpeakerId);

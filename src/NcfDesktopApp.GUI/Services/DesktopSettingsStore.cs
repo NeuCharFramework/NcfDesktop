@@ -139,6 +139,7 @@ public static class DesktopSettingsStore
                 VoiceLanguage = NormalizeVoiceLanguage(settings.VoiceLanguage),
                 SttAutoSend = settings.SttAutoSend,
                 WakeWordEnabled = settings.WakeWordEnabled,
+                WakeWords = NormalizeWakeWords(settings.WakeWords),
                 TtsModelId = settings.TtsModelId?.Trim() ?? string.Empty,
                 TtsCustomModelPath = settings.TtsCustomModelPath?.Trim() ?? string.Empty,
                 TtsSpeakerId = Math.Clamp(settings.TtsSpeakerId, 0, 1024),
@@ -179,5 +180,43 @@ public static class DesktopSettingsStore
             "en" => "en",
             _ => "auto"
         };
+    }
+
+    private static System.Collections.Generic.List<WakeWordConfiguration> NormalizeWakeWords(
+        System.Collections.Generic.IEnumerable<WakeWordConfiguration>? wakeWords)
+    {
+        var normalized = new System.Collections.Generic.List<WakeWordConfiguration>();
+        var hasDefault = false;
+
+        foreach (var source in wakeWords ?? Array.Empty<WakeWordConfiguration>())
+        {
+            if (source == null)
+            {
+                continue;
+            }
+
+            var action = Enum.IsDefined(typeof(WakeWordActionKind), source.Action)
+                ? source.Action
+                : WakeWordActionKind.ChatSession;
+            var item = new WakeWordConfiguration(source.Id)
+            {
+                Phrase = source.Phrase?.Trim() ?? string.Empty,
+                Pinyin = source.Pinyin?.Trim() ?? string.Empty,
+                IsEnabled = source.IsEnabled,
+                IsDefault = source.IsDefault && !hasDefault,
+                Action = action,
+                TargetSessionId = Math.Max(0, source.TargetSessionId),
+                TargetSessionTitle = source.TargetSessionTitle?.Trim() ?? string.Empty
+            };
+            hasDefault |= item.IsDefault;
+            normalized.Add(item);
+        }
+
+        if (normalized.Count > 0 && !hasDefault)
+        {
+            normalized[0].IsDefault = true;
+        }
+
+        return normalized;
     }
 }

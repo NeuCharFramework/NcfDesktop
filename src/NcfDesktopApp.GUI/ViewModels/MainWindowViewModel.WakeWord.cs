@@ -18,12 +18,16 @@
 ----------------------------------------------------------------*/
 
 using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using NcfDesktopApp.GUI.Models;
 using NcfDesktopApp.GUI.Services;
 
 namespace NcfDesktopApp.GUI.ViewModels;
@@ -65,10 +69,32 @@ public partial class MainWindowViewModel
     [ObservableProperty]
     private bool _isWakeWordDownloadProgressIndeterminate = true;
 
-    public string WakePhraseText =>
-        $"“{WakeWordModelCatalog.WakePhraseDisplay}”（读作“{WakeWordModelCatalog.WakePhrasePronunciation}”）";
+    [ObservableProperty]
+    private string _wakeWordConfigurationStatusText =
+        "可添加多个唤醒词；修改后点击“应用唤醒词配置”才会重建本机关键词模型。";
+
+    public ObservableCollection<WakeWordConfiguration> WakeWordConfigurations { get; } = new();
+
+    public ObservableCollection<WakeWordChatSessionOption> WakeWordChatSessionOptions { get; } = new();
+
+    public string WakePhraseText
+    {
+        get
+        {
+            var defaultWord = WakeWordConfigurations.FirstOrDefault(configuration => configuration.IsDefault) ??
+                              WakeWordConfigurations.FirstOrDefault();
+            if (defaultWord == null)
+            {
+                return $"“{WakeWordModelCatalog.WakePhraseDisplay}”（读作“{WakeWordModelCatalog.WakePhrasePronunciation}”）";
+            }
+
+            return $"“{defaultWord.DisplayLabel}”";
+        }
+    }
 
     public string WakePhraseLabel => LocalizationService.T("Settings.WakePhrase", WakePhraseText);
+
+    public string WakeWordEnableLabel => LocalizationService.T("Settings.WakeWordEnable", WakePhraseText);
 
     public string WakeWordStatusColor => IsWakeWordListening
         ? "#16A34A"
@@ -236,6 +262,304 @@ public partial class MainWindowViewModel
         OpenBrowser(WakeWordModelCatalog.ModelsDirectory);
     }
 
+    [RelayCommand]
+    private void AddWakeWord()
+    {
+        var configuration = new WakeWordConfiguration
+        {
+            Phrase = "新唤醒词",
+            Pinyin = string.Empty,
+            IsEnabled = true,
+            IsDefault = WakeWordConfigurations.Count == 0
+        };
+        WakeWordConfigurations.Add(configuration);
+        ObserveWakeWordConfiguration(configuration);
+        PopulateAutomaticPinyin(configuration);
+        NotifyWakePhraseChanged();
+        WakeWordConfigurationStatusText = "已添加唤醒词，请填写短语并应用配置。";
+    }
+
+    [RelayCommand]
+    private void RemoveWakeWord(WakeWordConfiguration? configuration)
+    {
+        if (configuration == null || WakeWordConfigurations.Count <= 1)
+        {
+            WakeWordConfigurationStatusText = "至少保留一个唤醒词。";
+            return;
+        }
+
+        var wasDefault = configuration.IsDefault;
+        UnobserveWakeWordConfiguration(configuration);
+        WakeWordConfigurations.Remove(configuration);
+        if (wasDefault && WakeWordConfigurations.Count > 0)
+        {
+            WakeWordConfigurations[0].IsDefault = true;
+        }
+
+        NotifyWakePhraseChanged();
+        WakeWordConfigurationStatusText = "已移除唤醒词，请应用配置。";
+    }
+
+    internal void RegenerateWakeWordPinyin(WakeWordConfiguration? configuration)
+    {
+        if (configuration == null)
+        {
+            return;
+        }
+
+        if (!WakeWordModelCatalog.TryGetSuggestedPinyin(
+                configuration.Phrase,
+                out var suggestedPinyin,
+                out var error))
+        {
+            configuration.IsWakeDetectionValid = false;
+            configuration.WakeDetectionValidationMessage = error;
+            WakeWordConfigurationStatusText = $"无法从“{configuration.DisplayLabel}”自动生成拼音：{error}";
+            return;
+        }
+
+        configuration.Pinyin = suggestedPinyin;
+        configuration.IsWakeDetectionValid = true;
+        configuration.WakeDetectionValidationMessage = "已按中文短语自动生成拼音，请应用配置。";
+        WakeWordConfigurationStatusText = $"已更新“{configuration.DisplayLabel}”的拼音，请应用配置。";
+    }
+
+    [RelayCommand]
+    private void SetDefaultWakeWord(WakeWordConfiguration? configuration)
+    {
+        if (configuration == null)
+        {
+            return;
+        }
+
+        foreach (var item in WakeWordConfigurations)
+        {
+            item.IsDefault = ReferenceEquals(item, configuration);
+        }
+
+        NotifyWakePhraseChanged();
+        WakeWordConfigurationStatusText = $"默认唤醒词已设为“{configuration.DisplayLabel}”，请应用配置。";
+    }
+
+    [RelayCommand]
+    private async Task ApplyWakeWordConfiguration()
+    {
+        NormalizeWakeWordConfigurations();
+        await StopWakeWordListeningForOperationAsync().ConfigureAwait(true);
+        RefreshWakeWordModelReadiness();
+        var readiness = WakeWordModelCatalog.Evaluate();
+        if (readiness.IsReady)
+        {
+            var configuredModel = WakeWordModelCatalog.BuildConfiguredFiles(
+                readiness.ModelDirectory,
+                WakeWordConfigurations);
+            ApplyWakeWordValidations(configuredModel);
+            WakeWordConfigurationStatusText = configuredModel.Message;
+        }
+        else
+        {
+            WakeWordConfigurationStatusText = readiness.Message;
+        }
+
+        SaveDesktopSettings();
+        ScheduleWakeWordListeningRefresh();
+    }
+
+    private void NormalizeWakeWordConfigurations()
+    {
+        if (WakeWordConfigurations.Count == 0)
+        {
+            var defaultConfiguration = WakeWordModelCatalog.CreateDefaultConfiguration();
+            WakeWordConfigurations.Add(defaultConfiguration);
+            ObserveWakeWordConfiguration(defaultConfiguration);
+        }
+
+        var defaultWord = WakeWordConfigurations.FirstOrDefault(configuration => configuration.IsDefault) ??
+                          WakeWordConfigurations.First();
+        foreach (var item in WakeWordConfigurations)
+        {
+            item.IsDefault = ReferenceEquals(item, defaultWord);
+            item.Phrase = item.Phrase.Trim();
+            item.Pinyin = item.Pinyin?.Trim() ?? string.Empty;
+            item.TargetSessionId = Math.Max(0, item.TargetSessionId);
+            PopulateAutomaticPinyin(item);
+        }
+    }
+
+    internal void LoadWakeWordConfigurations(IEnumerable<WakeWordConfiguration>? configurations)
+    {
+        foreach (var existing in WakeWordConfigurations)
+        {
+            UnobserveWakeWordConfiguration(existing);
+        }
+
+        WakeWordConfigurations.Clear();
+        foreach (var configuration in configurations ?? Array.Empty<WakeWordConfiguration>())
+        {
+            if (configuration == null)
+            {
+                continue;
+            }
+
+            WakeWordConfigurations.Add(configuration);
+            ObserveWakeWordConfiguration(configuration);
+            PopulateAutomaticPinyin(configuration);
+        }
+
+        if (WakeWordConfigurations.Count == 0)
+        {
+            var defaultConfiguration = WakeWordModelCatalog.CreateDefaultConfiguration();
+            WakeWordConfigurations.Add(defaultConfiguration);
+            ObserveWakeWordConfiguration(defaultConfiguration);
+        }
+
+        NormalizeWakeWordConfigurations();
+        RefreshWakeWordChatSessionOptions();
+        NotifyWakePhraseChanged();
+    }
+
+    internal void RefreshWakeWordChatSessionOptions()
+    {
+        WakeWordChatSessionOptions.Clear();
+        WakeWordChatSessionOptions.Add(new WakeWordChatSessionOption(
+            0,
+            LocalizationService.T("Settings.WakeCurrentChat")));
+        foreach (var session in AdminChatSessions)
+        {
+            WakeWordChatSessionOptions.Add(new WakeWordChatSessionOption(session.Id, session.DisplayName));
+        }
+
+        foreach (var configuration in WakeWordConfigurations)
+        {
+            var selected = WakeWordChatSessionOptions.FirstOrDefault(
+                option => option.Id == configuration.TargetSessionId);
+            if (selected != null)
+            {
+                configuration.SelectedTargetSession = selected;
+            }
+            else if (configuration.TargetSessionId <= 0)
+            {
+                configuration.SelectedTargetSession = WakeWordChatSessionOptions[0];
+            }
+        }
+    }
+
+    private void ObserveWakeWordConfiguration(WakeWordConfiguration configuration)
+    {
+        configuration.PropertyChanged -= OnWakeWordConfigurationPropertyChanged;
+        configuration.PropertyChanged += OnWakeWordConfigurationPropertyChanged;
+    }
+
+    private void UnobserveWakeWordConfiguration(WakeWordConfiguration configuration)
+    {
+        configuration.PropertyChanged -= OnWakeWordConfigurationPropertyChanged;
+    }
+
+    private void OnWakeWordConfigurationPropertyChanged(
+        object? sender,
+        System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is nameof(WakeWordConfiguration.Phrase) or
+            nameof(WakeWordConfiguration.IsDefault))
+        {
+            if (sender is WakeWordConfiguration configuration &&
+                e.PropertyName == nameof(WakeWordConfiguration.Phrase))
+            {
+                PopulateAutomaticPinyin(configuration);
+                if (!string.IsNullOrWhiteSpace(configuration.Pinyin))
+                {
+                    configuration.IsWakeDetectionValid = true;
+                    configuration.WakeDetectionValidationMessage =
+                        "已根据中文短语自动更新拼音，请应用配置。";
+                    WakeWordConfigurationStatusText =
+                        "已根据中文短语自动更新拼音；请应用唤醒词配置。";
+                }
+            }
+
+            NotifyWakePhraseChanged();
+        }
+    }
+
+    private static void PopulateAutomaticPinyin(WakeWordConfiguration configuration)
+    {
+        if (!WakeWordModelCatalog.TryGetSuggestedPinyin(
+                configuration.Phrase,
+                out var suggestedPinyin,
+                out _) ||
+            (!string.IsNullOrWhiteSpace(configuration.Pinyin) &&
+             WakeWordModelCatalog.HasToneInformation(configuration.Pinyin)))
+        {
+            return;
+        }
+
+        configuration.Pinyin = suggestedPinyin;
+    }
+
+    private void ApplyWakeWordValidations(WakeWordConfiguredModel configuredModel)
+    {
+        var validations = configuredModel.Validations
+            .GroupBy(validation => validation.ConfigurationId, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                group => group.Key,
+                group => group.Last(),
+                StringComparer.OrdinalIgnoreCase);
+        foreach (var configuration in WakeWordConfigurations)
+        {
+            if (!validations.TryGetValue(configuration.Id, out var validation))
+            {
+                configuration.IsWakeDetectionValid = configuredModel.IsReady;
+                configuration.WakeDetectionValidationMessage = configuredModel.Message;
+                continue;
+            }
+
+            configuration.IsWakeDetectionValid = validation.IsValid;
+            configuration.WakeDetectionValidationMessage = validation.Message;
+            if (validation.IsValid &&
+                !string.IsNullOrWhiteSpace(validation.EffectivePinyin) &&
+                (string.IsNullOrWhiteSpace(configuration.Pinyin) ||
+                 !WakeWordModelCatalog.HasToneInformation(configuration.Pinyin)))
+            {
+                configuration.Pinyin = validation.EffectivePinyin;
+            }
+        }
+    }
+
+    private void NotifyWakePhraseChanged()
+    {
+        OnPropertyChanged(nameof(WakePhraseText));
+        OnPropertyChanged(nameof(WakePhraseLabel));
+        OnPropertyChanged(nameof(WakeWordEnableLabel));
+    }
+
+    private WakeWordConfiguration? FindWakeWordConfiguration(string keywordId)
+    {
+        return WakeWordConfigurations.FirstOrDefault(configuration =>
+            configuration.IsEnabled &&
+            string.Equals(
+                WakeWordModelCatalog.GetKeywordAlias(configuration),
+                keywordId,
+                StringComparison.OrdinalIgnoreCase));
+    }
+
+    private int PrepareWakeWordChatTarget(WakeWordConfiguration? configuration)
+    {
+        var targetSessionId = configuration?.TargetSessionId ?? 0;
+        if (targetSessionId > 0)
+        {
+            var targetSession = AdminChatSessions.FirstOrDefault(session => session.Id == targetSessionId);
+            if (targetSession != null)
+            {
+                SelectedAdminChatSession = targetSession;
+                return targetSession.Id;
+            }
+
+            WakeWordConfigurationStatusText =
+                $"唤醒词“{configuration?.DisplayLabel}”关联的 Chat 已不存在，将使用当前选中的 Chat。";
+        }
+
+        return SelectedAdminChatSession?.Id ?? 0;
+    }
+
     /// <summary>
     /// 供 macOS 主界面的一键入口使用。它先确保没有残留的监听，再把已保存的
     /// 开启状态安全地应用到本次运行；效果等同于用户手动关闭后再开启，但不会把
@@ -382,13 +706,25 @@ public partial class MainWindowViewModel
                 return;
             }
 
+            var configuredModel = WakeWordModelCatalog.BuildConfiguredFiles(
+                readiness.ModelDirectory,
+                WakeWordConfigurations);
+            ApplyWakeWordValidations(configuredModel);
+            WakeWordConfigurationStatusText = configuredModel.Message;
+            if (!configuredModel.IsReady || configuredModel.Files == null)
+            {
+                WakeWordStatusText = configuredModel.Message;
+                return;
+            }
+
             await _wakeWordService.StartListeningAsync(
                 _voiceInputOwner,
-                readiness.Files,
+                configuredModel.Files,
                 CancellationToken.None).ConfigureAwait(true);
             IsWakeWordListening = true;
             WakeWordStatusText =
-                $"正在本机等待 {WakePhraseText}；未唤醒音频只在内存中流过，不保存、不上传。";
+                $"正在本机等待 {configuredModel.Files.KeywordDefinitions?.Count ?? 0} 个唤醒词；" +
+                "未唤醒音频只在内存中流过，不保存、不上传。";
         }
         catch (Exception ex)
         {
@@ -427,11 +763,6 @@ public partial class MainWindowViewModel
         if (!IsAdminChatActive)
         {
             return "等待 NCF、DesktopBridge 和 AdminChat 登录就绪；唤醒监听尚未启动。";
-        }
-
-        if (IsAdminChatBusy)
-        {
-            return "Agent 正在处理消息，唤醒监听已暂时暂停。";
         }
 
         if (IsVoiceInputBusy || _voiceInputStarting || _wakeWordHandlingDetection)
@@ -494,7 +825,9 @@ public partial class MainWindowViewModel
         _wakeWordHandlingDetection = true;
         try
         {
+            var configuration = FindWakeWordConfiguration(detected.KeywordId);
             var interruptedTtsPlayback = IsTtsPlaying;
+            var targetSessionId = PrepareWakeWordChatTarget(configuration);
             WakeWordStatusText = $"已检测到“{detected.Phrase}”，正在切换到语音录制…";
             Robot.SetVoiceInputState("已唤醒", "正在开始本地语音录制");
             if (interruptedTtsPlayback)
@@ -506,7 +839,12 @@ public partial class MainWindowViewModel
             await StopWakeWordListeningForOperationAsync().ConfigureAwait(true);
             await StartVoiceInputAsync(
                 startedByWakeWord: true,
-                allowWhileAdminChatBusy: interruptedTtsPlayback).ConfigureAwait(true);
+                allowWhileAdminChatBusy: true,
+                wakeWordTargetSessionId: targetSessionId).ConfigureAwait(true);
+            if (IsVoiceRecording)
+            {
+                SpeakWakeWordFeedback("listening");
+            }
         }
         finally
         {

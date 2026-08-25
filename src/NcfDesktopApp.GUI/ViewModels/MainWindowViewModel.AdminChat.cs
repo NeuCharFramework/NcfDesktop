@@ -70,6 +70,8 @@ public partial class MainWindowViewModel
     private int _pendingStreamingGeneration;
     private int _streamingGeneration;
     private int _streamingChunkFlushScheduled;
+    private long _adminChatSessionSelectionVersion;
+    private int _suppressAdminChatSessionSelectionLoad;
     private readonly Dictionary<int, int> _adminChatSessionModelIds = new();
     private int _adminChatSessionMutationInProgress;
     private int _adminWebHandoffInProgress;
@@ -174,6 +176,7 @@ public partial class MainWindowViewModel
 
     partial void OnSelectedAdminChatSessionChanged(AdminChatSessionSummary? value)
     {
+        var selectionVersion = Interlocked.Increment(ref _adminChatSessionSelectionVersion);
         OnPropertyChanged(nameof(HasSelectedAdminChatSession));
         OnPropertyChanged(nameof(AdminChatModuleSelectionText));
         DeleteAdminChatSessionCommand.NotifyCanExecuteChanged();
@@ -190,9 +193,9 @@ public partial class MainWindowViewModel
         if (value != null &&
             IsAdminChatActive &&
             Volatile.Read(ref _adminChatSessionMutationInProgress) == 0 &&
-            Volatile.Read(ref _adminChatSessionRefreshInProgress) == 0)
+            Volatile.Read(ref _suppressAdminChatSessionSelectionLoad) == 0)
         {
-            _ = LoadAdminChatSessionAsync(value.Id);
+            _ = LoadAdminChatSessionAsync(value.Id, selectionVersion);
         }
         else
         {
@@ -286,6 +289,7 @@ public partial class MainWindowViewModel
         AdminPassword = string.Empty;
         AdminChatSessions.Clear();
         AdminChatMessages.Clear();
+        RefreshWakeWordChatSessionOptions();
         ResetAdminChatOptions();
         SelectedAdminChatSession = null;
         AdminChatStatusText = "已退出；JWT 已从内存中清除。";
@@ -305,6 +309,16 @@ public partial class MainWindowViewModel
 
         if (isLoginPage)
         {
+            if (IsAdminAuthenticated)
+            {
+                AdminChatStatusText =
+                    "WebView 管理员 Cookie 当前未通过校验；桌面端 AdminChat 登录仍保留，" +
+                    "请检查 NCF DataProtection-Keys 是否持久化。";
+                AddLog(
+                    "⚠️ WebView 已回到管理员登录页，但未清除桌面端 AdminChat JWT。" +
+                    "若同时出现 AdminChat 退出，请检查 NCF 的 DataProtection key ring。");
+            }
+
             _suppressAdminWebHandoffUntilWebLogin = false;
             CancelAdminWebHandoff();
             return;
@@ -639,7 +653,9 @@ public partial class MainWindowViewModel
     /// 手动发送和 STT 自动发送共用的唯一入口，保证鉴权、流式响应和失败恢复行为一致。
     /// </summary>
     /// <returns>消息是否完成发送；由输入框发起时失败会恢复原文字，显式内容则交由调用方保留。</returns>
-    private async Task<bool> SendAdminChatMessageCoreAsync(string? contentOverride = null)
+    private async Task<bool> SendAdminChatMessageCoreAsync(
+        string? contentOverride = null,
+        int? targetSessionId = null)
     {
         var useChatInput = contentOverride == null;
         var content = (contentOverride ?? ChatInput).Trim();
@@ -652,15 +668,19 @@ public partial class MainWindowViewModel
         AdminChatStatusText = "Agent 正在处理…";
         try
         {
-            var sessionId = SelectedAdminChatSession?.Id ?? 0;
+            var sessionId = targetSessionId ?? SelectedAdminChatSession?.Id ?? 0;
+            var aiModelId = targetSessionId is > 0 &&
+                            _adminChatSessionModelIds.TryGetValue(targetSessionId.Value, out var targetModelId)
+                ? targetModelId
+                : SelectedAdminChatAiModel?.Id ?? 0;
             if (sessionId <= 0)
             {
                 sessionId = await _adminChatClient.CreateSessionAsync(
                     SiteUrl,
-                    SelectedAdminChatAiModel?.Id ?? 0,
+                    aiModelId,
                     GetSelectedAdminChatModuleUids(),
                     _cancellationTokenSource?.Token ?? CancellationToken.None);
-                _adminChatSessionModelIds[sessionId] = SelectedAdminChatAiModel?.Id ?? 0;
+                _adminChatSessionModelIds[sessionId] = aiModelId;
             }
 
             if (useChatInput)
@@ -677,7 +697,7 @@ public partial class MainWindowViewModel
                 SiteUrl,
                 sessionId,
                 content,
-                aiModelId: SelectedAdminChatAiModel?.Id ?? 0,
+                aiModelId: aiModelId,
                 onUserMessage: message => ReconcileUserMessage(optimisticUserId, message),
                 onToken: chunk => HandleStreamingAssistantChunk(sessionId, chunk),
                 onAssistantMessage: message => CompleteStreamingAssistantMessage(message),
@@ -959,9 +979,18 @@ public partial class MainWindowViewModel
                         AdminChatSessions.Add(session);
                     }
 
+                    RefreshWakeWordChatSessionOptions();
                     selected = AdminChatSessions.FirstOrDefault(item => item.Id == selectedId) ??
                                AdminChatSessions.FirstOrDefault();
-                    SelectedAdminChatSession = selected;
+                    Interlocked.Increment(ref _suppressAdminChatSessionSelectionLoad);
+                    try
+                    {
+                        SelectedAdminChatSession = selected;
+                    }
+                    finally
+                    {
+                        Interlocked.Decrement(ref _suppressAdminChatSessionSelectionLoad);
+                    }
                 });
 
                 if (loadSelectedMessages && selected != null)
@@ -988,12 +1017,13 @@ public partial class MainWindowViewModel
         }
     }
 
-    private async Task LoadAdminChatSessionAsync(int sessionId)
+    private async Task LoadAdminChatSessionAsync(int sessionId, long selectionVersion)
     {
         await _adminChatRefreshLock.WaitAsync();
         try
         {
-            await LoadAdminChatSessionCoreAsync(sessionId);
+            AdminChatStatusText = "正在加载所选 Chat 的历史记录…";
+            await LoadAdminChatSessionCoreAsync(sessionId, selectionVersion);
         }
         catch (AdminChatApiException ex)
         {
@@ -1015,7 +1045,9 @@ public partial class MainWindowViewModel
         }
     }
 
-    private async Task LoadAdminChatSessionCoreAsync(int sessionId)
+    private async Task LoadAdminChatSessionCoreAsync(
+        int sessionId,
+        long? expectedSelectionVersion = null)
     {
         if (!IsAdminChatActive)
         {
@@ -1028,7 +1060,9 @@ public partial class MainWindowViewModel
             _cancellationTokenSource?.Token ?? CancellationToken.None);
         await Dispatcher.UIThread.InvokeAsync(() =>
         {
-            if (SelectedAdminChatSession?.Id != sessionId)
+            if (SelectedAdminChatSession?.Id != sessionId ||
+                expectedSelectionVersion is { } version &&
+                Interlocked.Read(ref _adminChatSessionSelectionVersion) != version)
             {
                 return;
             }
@@ -1043,6 +1077,9 @@ public partial class MainWindowViewModel
             }
 
             SetAssociatedAdminChatModules(session?.Modules ?? new List<AdminChatSessionModule>());
+            AdminChatStatusText = session == null
+                ? "所选 Chat 未返回历史记录。"
+                : $"已加载 Chat「{SelectedAdminChatSession.DisplayName}」的历史记录。";
         });
     }
 
@@ -1169,6 +1206,7 @@ public partial class MainWindowViewModel
         IsAdminAuthenticated = false;
         AdminChatSessions.Clear();
         AdminChatMessages.Clear();
+        RefreshWakeWordChatSessionOptions();
         ResetAdminChatOptions();
         SelectedAdminChatSession = null;
         OnPropertyChanged(nameof(AdminChatAccountText));
@@ -1190,6 +1228,7 @@ public partial class MainWindowViewModel
             AdminPassword = string.Empty;
             AdminChatSessions.Clear();
             AdminChatMessages.Clear();
+            RefreshWakeWordChatSessionOptions();
             ResetAdminChatOptions();
             SelectedAdminChatSession = null;
             AdminChatStatusText = "启动 NCF 并连接 DesktopBridge 后可登录。";

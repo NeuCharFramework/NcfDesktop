@@ -116,6 +116,11 @@ public sealed class DesktopUserSettings
     public bool WakeWordEnabled { get; set; }
 
     /// <summary>
+    /// 自定义唤醒词及唤醒后要使用的 Chat 会话。
+    /// </summary>
+    public List<WakeWordConfiguration> WakeWords { get; set; } = new();
+
+    /// <summary>
     /// 已选择的本地文本转语音模型标识。空值表示用户尚未选择。
     /// </summary>
     public string TtsModelId { get; set; } = string.Empty;

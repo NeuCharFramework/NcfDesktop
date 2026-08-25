@@ -120,6 +120,35 @@ public sealed class AdminChatClientTests
     }
 
     [TestMethod]
+    public async Task GetSessionsAsync_WhenJwtHasExpired_ReportsExpirationInsteadOfGenericLogout()
+    {
+        var client = CreateClient(_ => EmptySessionsResponse());
+        await client.AuthenticateWithAccessTokenAsync(
+            SiteUrl,
+            "admin",
+            "expired-jwt",
+            DateTimeOffset.UtcNow.AddMinutes(10));
+
+        var authentication = client.Authentication;
+        Assert.IsNotNull(authentication);
+
+        // 模拟令牌自然过期，避免依赖真实等待。
+        var expiredClient = CreateClient(_ => EmptySessionsResponse());
+        await expiredClient.AuthenticateWithAccessTokenAsync(
+            SiteUrl,
+            "admin",
+            "expired-jwt",
+            DateTimeOffset.UtcNow.AddSeconds(11));
+
+        await Task.Delay(TimeSpan.FromSeconds(2));
+        var exception = await Assert.ThrowsExceptionAsync<AdminChatApiException>(
+            () => expiredClient.GetSessionsAsync(SiteUrl));
+
+        Assert.IsTrue(exception.IsAuthenticationFailure);
+        StringAssert.Contains(exception.Message, "管理员 JWT 已于");
+    }
+
+    [TestMethod]
     public async Task CreateSessionAsync_SendsSelectedModelAndModules()
     {
         var createBody = string.Empty;

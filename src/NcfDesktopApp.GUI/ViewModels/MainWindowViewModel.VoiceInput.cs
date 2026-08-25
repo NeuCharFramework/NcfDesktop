@@ -41,6 +41,8 @@ public partial class MainWindowViewModel
     private bool _voiceInputStartedByWakeWord;
     private int _voiceAutoStopInProgress;
     private string? _pendingWakeWordTranscript;
+    private int _pendingWakeWordTargetSessionId;
+    private int _wakeWordTargetSessionId;
 
     [ObservableProperty]
     private VoiceModelOption? _selectedVoiceModel;
@@ -316,7 +318,8 @@ public partial class MainWindowViewModel
 
     private async Task StartVoiceInputAsync(
         bool startedByWakeWord,
-        bool allowWhileAdminChatBusy = false)
+        bool allowWhileAdminChatBusy = false,
+        int wakeWordTargetSessionId = 0)
     {
 
         var readiness = VoiceModelCatalog.Evaluate(SelectedVoiceModel, VoiceCustomModelPath);
@@ -344,6 +347,7 @@ public partial class MainWindowViewModel
 
         _voiceInputStarting = true;
         _voiceInputStartedByWakeWord = startedByWakeWord;
+        _wakeWordTargetSessionId = startedByWakeWord ? Math.Max(0, wakeWordTargetSessionId) : 0;
         try
         {
             await StopWakeWordListeningForOperationAsync().ConfigureAwait(true);
@@ -362,8 +366,8 @@ public partial class MainWindowViewModel
                 IsVoiceRecording = true;
                 VoiceInputStatusText = startedByWakeWord
                     ? allowWhileAdminChatBusy && IsAdminChatBusy
-                        ? $"已由“{WakeWordModelCatalog.WakePhraseDisplay}”唤醒并开始录音；当前回复结束后会自动发送本次语音。"
-                        : $"已由“{WakeWordModelCatalog.WakePhraseDisplay}”唤醒并开始录音；检测到讲话结束后会在本机识别并自动发送。"
+                        ? $"已由“{WakePhraseText}”唤醒并开始录音；当前回复结束后会自动发送本次语音。"
+                        : $"已由“{WakePhraseText}”唤醒并开始录音；检测到讲话结束后会在本机识别并自动发送。"
                     : "正在录音；再次点击“停止”后将在本机识别。";
                 Robot.SetVoiceInputState(
                     "正在录音",
@@ -390,6 +394,7 @@ public partial class MainWindowViewModel
             if (!IsVoiceRecording)
             {
                 _voiceInputStartedByWakeWord = false;
+                _wakeWordTargetSessionId = 0;
                 _voiceRecognitionCts?.Dispose();
                 _voiceRecognitionCts = null;
                 ScheduleWakeWordListeningRefresh();
@@ -417,6 +422,8 @@ public partial class MainWindowViewModel
         {
             IsVoiceRecording = false;
             _voiceInputStartedByWakeWord = false;
+            _wakeWordTargetSessionId = 0;
+            _pendingWakeWordTargetSessionId = 0;
             Interlocked.Exchange(ref _voiceAutoStopInProgress, 0);
             VoiceInputStatusText = "语音输入已取消。";
             Robot.SetVoiceInputState("已取消", "语音内容未发送");
@@ -450,6 +457,9 @@ public partial class MainWindowViewModel
     private async Task StopVoiceInputAndTranscribeAsync(bool autoSendAfterTranscription)
     {
         var shouldAutoSend = autoSendAfterTranscription || SttAutoSend;
+        var wakeWordTargetSessionId = _voiceInputStartedByWakeWord
+            ? _wakeWordTargetSessionId
+            : 0;
         IsVoiceRecording = false;
         IsVoiceTranscribing = true;
         VoiceInputStatusText = "正在使用本地模型识别，不会上传音频…";
@@ -469,18 +479,26 @@ public partial class MainWindowViewModel
             {
                 if (IsAdminChatBusy)
                 {
-                    QueueWakeWordTranscriptForAutoSend(transcript);
+                    QueueWakeWordTranscriptForAutoSend(transcript, wakeWordTargetSessionId);
                     return;
                 }
 
                 // 复用 AdminChat 唯一发送入口，使鉴权、流式响应和失败恢复行为与手动发送完全一致。
                 VoiceInputStatusText = "识别完成，正在自动发送…";
                 Robot.SetVoiceInputState("正在发送", "语音文字正在发送到 AdminChat");
+                if (_voiceInputStartedByWakeWord)
+                {
+                    SpeakWakeWordFeedback("received");
+                }
                 bool sent;
                 try
                 {
                     // 自动语音只发送本次识别文本，绝不把用户输入框中已有的草稿一并发送。
-                    sent = await SendAdminChatMessageCoreAsync(transcript);
+                    sent = await SendAdminChatMessageCoreAsync(
+                        transcript,
+                        targetSessionId: wakeWordTargetSessionId > 0
+                            ? wakeWordTargetSessionId
+                            : null);
                 }
                 catch (Exception ex)
                 {
@@ -533,6 +551,7 @@ public partial class MainWindowViewModel
         {
             IsVoiceTranscribing = false;
             _voiceInputStartedByWakeWord = false;
+            _wakeWordTargetSessionId = 0;
             Interlocked.Exchange(ref _voiceAutoStopInProgress, 0);
             _voiceRecognitionCts?.Dispose();
             _voiceRecognitionCts = null;
@@ -585,6 +604,7 @@ public partial class MainWindowViewModel
                 await _voiceInputService.CancelRecordingAsync(_voiceInputOwner).ConfigureAwait(true);
                 IsVoiceRecording = false;
                 _voiceInputStartedByWakeWord = false;
+                _wakeWordTargetSessionId = 0;
                 _voiceRecognitionCts?.Dispose();
                 _voiceRecognitionCts = null;
                 VoiceInputStatusText = "唤醒后未检测到讲话，语音内容未发送。";
@@ -624,11 +644,12 @@ public partial class MainWindowViewModel
             : $"{ChatInput.TrimEnd()}{Environment.NewLine}{transcript}";
     }
 
-    private void QueueWakeWordTranscriptForAutoSend(string transcript)
+    private void QueueWakeWordTranscriptForAutoSend(string transcript, int targetSessionId)
     {
         _pendingWakeWordTranscript = string.IsNullOrWhiteSpace(_pendingWakeWordTranscript)
             ? transcript
             : $"{_pendingWakeWordTranscript.TrimEnd()}{Environment.NewLine}{transcript}";
+        _pendingWakeWordTargetSessionId = targetSessionId;
         VoiceInputStatusText = "识别完成；当前回复结束后会自动发送本次语音文字。";
         Robot.SetVoiceInputState("等待发送", "当前回复完成后将自动发送本次语音文字");
         AddLog("ℹ️ 当前 AdminChat 仍在回复；已排队本次语音文字，完成后自动发送。");
@@ -653,6 +674,8 @@ public partial class MainWindowViewModel
 
         var transcript = _pendingWakeWordTranscript;
         _pendingWakeWordTranscript = null;
+        var targetSessionId = _pendingWakeWordTargetSessionId;
+        _pendingWakeWordTargetSessionId = 0;
         if (!CanUseAdminChat())
         {
             AppendTranscriptToChatInput(transcript);
@@ -663,9 +686,13 @@ public partial class MainWindowViewModel
 
         VoiceInputStatusText = "上一条回复已完成，正在自动发送语音文字…";
         Robot.SetVoiceInputState("正在发送", "语音文字正在发送到 AdminChat");
+        SpeakWakeWordFeedback("received");
         try
         {
-            if (await SendAdminChatMessageCoreAsync(transcript).ConfigureAwait(true))
+            if (await SendAdminChatMessageCoreAsync(
+                    transcript,
+                    targetSessionId: targetSessionId > 0 ? targetSessionId : null)
+                .ConfigureAwait(true))
             {
                 VoiceInputStatusText = "识别完成，文字已自动发送。";
                 Robot.SetVoiceInputState("已自动发送", "AdminChat 已完成语音消息处理");

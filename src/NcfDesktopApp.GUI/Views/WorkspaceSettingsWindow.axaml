@@ -2,8 +2,10 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:NcfDesktopApp.GUI.ViewModels"
         xmlns:loc="using:NcfDesktopApp.GUI.Markup"
+        xmlns:models="using:NcfDesktopApp.GUI.Models"
         x:Class="NcfDesktopApp.GUI.Views.WorkspaceSettingsWindow"
         x:DataType="vm:MainWindowViewModel"
+        x:Name="SettingsRoot"
         Title="{loc:Loc Settings.WindowTitle}"
         Width="820" Height="680"
         MinWidth="700" MinHeight="560"
@@ -180,13 +182,143 @@
 
                         <Border Background="#0D2563EB" CornerRadius="7" Padding="11">
                             <StackPanel Spacing="7">
-                                <CheckBox Content="{loc:Loc Settings.WakeWordEnable}"
+                                <CheckBox Content="{Binding WakeWordEnableLabel}"
                                           IsChecked="{Binding WakeWordEnabled, Mode=TwoWay}"/>
                                 <TextBlock Text="{Binding WakePhraseLabel}"
                                            FontWeight="SemiBold"
                                            FontSize="11"/>
                                 <TextBlock Text="{loc:Loc Settings.WakeWordHint}"
                                            FontSize="10.5"
+                                           TextWrapping="Wrap"
+                                           Foreground="{DynamicResource SecondaryTextBrush}"/>
+                                <TextBlock Text="{loc:Loc Settings.WakeWordsTitle}"
+                                           FontWeight="SemiBold"
+                                           Margin="0,5,0,0"/>
+                                <TextBlock Text="{loc:Loc Settings.WakeWordsHint}"
+                                           FontSize="10"
+                                           TextWrapping="Wrap"
+                                           Foreground="{DynamicResource SecondaryTextBrush}"/>
+                                <ItemsControl ItemsSource="{Binding WakeWordConfigurations}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="models:WakeWordConfiguration">
+                                            <Border Tag="WakeWordItem"
+                                                    Background="{DynamicResource ToolbarBackgroundBrush}"
+                                                    BorderBrush="{DynamicResource CardBorderBrush}"
+                                                    BorderThickness="1"
+                                                    CornerRadius="6"
+                                                    Padding="8"
+                                                    Margin="0,3">
+                                                <StackPanel Spacing="6">
+                                                    <Grid ColumnDefinitions="Auto,Auto,*,Auto">
+                                                        <RadioButton Grid.Column="0"
+                                                                     GroupName="WakeWordDefault"
+                                                                     IsChecked="{Binding IsDefault, Mode=TwoWay}"
+                                                                     VerticalAlignment="Center"
+                                                                     ToolTip.Tip="{loc:Loc Settings.WakeSetDefaultTip}"/>
+                                                        <CheckBox Grid.Column="1"
+                                                                  Content="{loc:Loc Settings.WakeEnabled}"
+                                                                  IsChecked="{Binding IsEnabled, Mode=TwoWay}"
+                                                                  Margin="6,0"
+                                                                  VerticalAlignment="Center"/>
+                                                        <TextBox Grid.Column="2"
+                                                                 Text="{Binding Phrase, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                                 Watermark="{loc:Loc Settings.WakePhraseWatermark}"
+                                                                 Margin="6,0"
+                                                                 MinWidth="150"/>
+                                                        <Button Grid.Column="3"
+                                                                Content="{loc:Loc Settings.WakeRemove}"
+                                                                Classes="secondary-action"
+                                                                Click="WakeWordRemoveButton_OnClick"/>
+                                                    </Grid>
+                                                    <Grid ColumnDefinitions="95,*,Auto,Auto">
+                                                        <TextBlock Grid.Column="0"
+                                                                   Text="{loc:Loc Settings.WakePinyin}"
+                                                                   Classes="field-label"
+                                                                   VerticalAlignment="Center"/>
+                                                        <TextBox Grid.Column="1"
+                                                                 Tag="WakePinyinInput"
+                                                                 Text="{Binding Pinyin, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                                 Watermark="{loc:Loc Settings.WakePinyinWatermark}"
+                                                                 FontFamily="Consolas,Menlo,Monaco,Courier New"/>
+                                                        <Button Grid.Column="2"
+                                                                Content="↻"
+                                                                Click="WakeWordAutoPinyinButton_OnClick"
+                                                                Classes="secondary-action"
+                                                                Margin="6,0,0,0"
+                                                                ToolTip.Tip="{loc:Loc Settings.WakeAutoPinyinTip}"/>
+                                                        <Button Grid.Column="3"
+                                                                Content="◌"
+                                                                Classes="secondary-action"
+                                                                Margin="6,0,0,0"
+                                                                ToolTip.Tip="{loc:Loc Settings.WakeToneSymbolsTip}">
+                                                            <Button.Flyout>
+                                                                <Flyout Placement="Bottom">
+                                                                    <Border Padding="8"
+                                                                            Background="{DynamicResource CardBackgroundBrush}"
+                                                                            BorderBrush="{DynamicResource CardBorderBrush}"
+                                                                            BorderThickness="1"
+                                                                            CornerRadius="6">
+                                                                        <WrapPanel ItemWidth="34" ItemHeight="30">
+                                                                            <Button Content="ā" Tag="ā" Click="WakePinyinSymbolButton_OnClick"/>
+                                                                            <Button Content="á" Tag="á" Click="WakePinyinSymbolButton_OnClick"/>
+                                                                            <Button Content="ǎ" Tag="ǎ" Click="WakePinyinSymbolButton_OnClick"/>
+                                                                            <Button Content="à" Tag="à" Click="WakePinyinSymbolButton_OnClick"/>
+                                                                            <Button Content="ē" Tag="ē" Click="WakePinyinSymbolButton_OnClick"/>
+                                                                            <Button Content="é" Tag="é" Click="WakePinyinSymbolButton_OnClick"/>
+                                                                            <Button Content="ě" Tag="ě" Click="WakePinyinSymbolButton_OnClick"/>
+                                                                            <Button Content="è" Tag="è" Click="WakePinyinSymbolButton_OnClick"/>
+                                                                            <Button Content="ī" Tag="ī" Click="WakePinyinSymbolButton_OnClick"/>
+                                                                            <Button Content="í" Tag="í" Click="WakePinyinSymbolButton_OnClick"/>
+                                                                            <Button Content="ǐ" Tag="ǐ" Click="WakePinyinSymbolButton_OnClick"/>
+                                                                            <Button Content="ì" Tag="ì" Click="WakePinyinSymbolButton_OnClick"/>
+                                                                            <Button Content="ō" Tag="ō" Click="WakePinyinSymbolButton_OnClick"/>
+                                                                            <Button Content="ó" Tag="ó" Click="WakePinyinSymbolButton_OnClick"/>
+                                                                            <Button Content="ǒ" Tag="ǒ" Click="WakePinyinSymbolButton_OnClick"/>
+                                                                            <Button Content="ò" Tag="ò" Click="WakePinyinSymbolButton_OnClick"/>
+                                                                            <Button Content="ū" Tag="ū" Click="WakePinyinSymbolButton_OnClick"/>
+                                                                            <Button Content="ú" Tag="ú" Click="WakePinyinSymbolButton_OnClick"/>
+                                                                            <Button Content="ǔ" Tag="ǔ" Click="WakePinyinSymbolButton_OnClick"/>
+                                                                            <Button Content="ù" Tag="ù" Click="WakePinyinSymbolButton_OnClick"/>
+                                                                            <Button Content="ǖ" Tag="ǖ" Click="WakePinyinSymbolButton_OnClick"/>
+                                                                            <Button Content="ǘ" Tag="ǘ" Click="WakePinyinSymbolButton_OnClick"/>
+                                                                            <Button Content="ǚ" Tag="ǚ" Click="WakePinyinSymbolButton_OnClick"/>
+                                                                            <Button Content="ǜ" Tag="ǜ" Click="WakePinyinSymbolButton_OnClick"/>
+                                                                        </WrapPanel>
+                                                                    </Border>
+                                                                </Flyout>
+                                                            </Button.Flyout>
+                                                        </Button>
+                                                    </Grid>
+                                                    <TextBlock Text="{Binding WakeDetectionValidationMessage}"
+                                                               Foreground="{Binding WakeDetectionValidationColor}"
+                                                               FontSize="9.5"
+                                                               TextWrapping="Wrap"/>
+                                                    <Grid ColumnDefinitions="95,*">
+                                                        <TextBlock Grid.Column="0"
+                                                                   Text="{loc:Loc Settings.WakeTargetChat}"
+                                                                   Classes="field-label"
+                                                                   VerticalAlignment="Center"/>
+                                                        <ComboBox Grid.Column="1"
+                                                                  ItemsSource="{Binding #SettingsRoot.DataContext.WakeWordChatSessionOptions}"
+                                                                  SelectedItem="{Binding SelectedTargetSession, Mode=TwoWay}"
+                                                                  DisplayMemberBinding="{Binding DisplayName}"/>
+                                                    </Grid>
+                                                </StackPanel>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <WrapPanel Orientation="Horizontal">
+                                    <Button Content="{loc:Loc Settings.WakeAdd}"
+                                            Command="{Binding AddWakeWordCommand}"
+                                            Classes="secondary-action"
+                                            Margin="0,0,8,0"/>
+                                    <Button Content="{loc:Loc Settings.WakeApply}"
+                                            Command="{Binding ApplyWakeWordConfigurationCommand}"
+                                            Classes="primary-action"/>
+                                </WrapPanel>
+                                <TextBlock Text="{Binding WakeWordConfigurationStatusText}"
+                                           FontSize="10"
                                            TextWrapping="Wrap"
                                            Foreground="{DynamicResource SecondaryTextBrush}"/>
                                 <TextBlock Text="{Binding WakeWordStatusText}"
