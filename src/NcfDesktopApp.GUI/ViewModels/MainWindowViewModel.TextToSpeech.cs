@@ -37,6 +37,9 @@ public partial class MainWindowViewModel
 {
     private readonly ILocalTextToSpeechService _ttsService = LocalTextToSpeechService.Shared;
     private readonly LocalTextToSpeechService _wakeFeedbackTtsService = new();
+    private readonly object _wakeFeedbackWarmupLock = new();
+    private CancellationTokenSource? _wakeFeedbackWarmupCts;
+    private string _wakeFeedbackWarmupKey = string.Empty;
     private CancellationTokenSource? _ttsPlaybackCts;
     private CancellationTokenSource? _ttsModelDownloadCts;
     private int? _speakingMessageId;
@@ -641,28 +644,37 @@ public partial class MainWindowViewModel
         }
     }
 
-    /// <summary>
-    /// 唤醒反馈使用独立的短语播放实例，并以 fire-and-forget 方式执行；
-    /// 不修改主 TTS 状态，也不阻塞录音、转写或 AdminChat 流程。
-    /// </summary>
-    internal void SpeakWakeWordFeedback(string stage)
+    internal Task<bool> PlayWakeWordFeedbackAsync(
+        string stage,
+        CancellationToken cancellationToken = default)
     {
         if (_workspaceAudioDisposed)
         {
-            return;
+            return Task.FromResult(false);
         }
 
         var readiness = TtsModelCatalog.Evaluate(SelectedTtsModel, TtsCustomModelPath);
         if (!readiness.IsReady || readiness.Files == null)
         {
-            return;
+            return Task.FromResult(false);
         }
 
         var phrase = WakeWordQuickReplyCatalog.Pick(stage, LocalizationService.Instance.IsEnglish);
-        _ = SpeakWakeWordFeedbackAsync(readiness.Files, phrase);
+        return PlayWakeWordFeedbackCoreAsync(readiness.Files, phrase, cancellationToken);
     }
 
-    private async Task SpeakWakeWordFeedbackAsync(TtsModelFiles files, string phrase)
+    /// <summary>
+    /// 第二阶段反馈不应阻塞消息发送；第一阶段由唤醒流程显式 await。
+    /// </summary>
+    internal void SpeakWakeWordFeedback(string stage)
+    {
+        _ = PlayWakeWordFeedbackAsync(stage);
+    }
+
+    private async Task<bool> PlayWakeWordFeedbackCoreAsync(
+        TtsModelFiles files,
+        string phrase,
+        CancellationToken cancellationToken)
     {
         try
         {
@@ -671,15 +683,80 @@ public partial class MainWindowViewModel
                 phrase,
                 SelectedTtsVoice?.SpeakerId ?? 45,
                 (float)TtsSpeed,
-                CancellationToken.None).ConfigureAwait(false);
+                cancellationToken).ConfigureAwait(false);
+            return true;
         }
         catch (OperationCanceledException)
         {
             // 工作台关闭时的正常取消。
+            return false;
         }
         catch (Exception ex)
         {
             AddLog($"ℹ️ 唤醒快速反馈未播放：{ex.Message}");
+            return false;
+        }
+    }
+
+    private void ScheduleWakeFeedbackWarmup(TtsModelFiles files)
+    {
+        var key = $"{files.Model}|{files.Voices}|{files.Tokens}|{files.DataDirectory}|{files.Lexicons}";
+        CancellationTokenSource? previous;
+        CancellationTokenSource current;
+        lock (_wakeFeedbackWarmupLock)
+        {
+            if (string.Equals(_wakeFeedbackWarmupKey, key, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            previous = _wakeFeedbackWarmupCts;
+            previous?.Cancel();
+            current = new CancellationTokenSource();
+            _wakeFeedbackWarmupCts = current;
+            _wakeFeedbackWarmupKey = key;
+        }
+
+        _ = WarmupWakeFeedbackAsync(files, current, key);
+    }
+
+    private async Task WarmupWakeFeedbackAsync(
+        TtsModelFiles files,
+        CancellationTokenSource warmupCts,
+        string key)
+    {
+        try
+        {
+            await _wakeFeedbackTtsService
+                .WarmupAsync(files, warmupCts.Token)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            lock (_wakeFeedbackWarmupLock)
+            {
+                if (string.Equals(_wakeFeedbackWarmupKey, key, StringComparison.Ordinal))
+                {
+                    _wakeFeedbackWarmupKey = string.Empty;
+                }
+            }
+
+            AddLog($"ℹ️ 唤醒反馈预热失败，首次反馈可能较慢：{ex.Message}");
+        }
+        finally
+        {
+            lock (_wakeFeedbackWarmupLock)
+            {
+                if (ReferenceEquals(_wakeFeedbackWarmupCts, warmupCts))
+                {
+                    _wakeFeedbackWarmupCts = null;
+                }
+            }
+
+            warmupCts.Dispose();
         }
     }
 
@@ -737,6 +814,10 @@ public partial class MainWindowViewModel
         TtsModelStatusText = readiness.Message;
         OnPropertyChanged(nameof(TtsModelStatusColor));
         NotifyTtsCommandsChanged();
+        if (readiness.IsReady && readiness.Files != null)
+        {
+            ScheduleWakeFeedbackWarmup(readiness.Files);
+        }
     }
 
     private void NotifyTtsCommandsChanged()
@@ -784,6 +865,12 @@ public partial class MainWindowViewModel
             StopTtsPlayback();
         }
         _ttsModelDownloadCts?.Cancel();
+        lock (_wakeFeedbackWarmupLock)
+        {
+            _wakeFeedbackWarmupCts?.Cancel();
+            _wakeFeedbackWarmupCts = null;
+            _wakeFeedbackWarmupKey = string.Empty;
+        }
         _voiceInputService.VisualizationFrameAvailable -= OnVoiceVisualizationFrame;
         _voiceInputService.AutoStopRequested -= OnVoiceRecordingAutoStopRequested;
         _voiceInputService.SpeechDetected -= OnVoiceRecordingSpeechDetected;

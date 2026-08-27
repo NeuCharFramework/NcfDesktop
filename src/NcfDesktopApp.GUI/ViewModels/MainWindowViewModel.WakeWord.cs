@@ -37,6 +37,8 @@ namespace NcfDesktopApp.GUI.ViewModels;
 
 public partial class MainWindowViewModel
 {
+    private static readonly TimeSpan WakeFeedbackTailProtection = TimeSpan.FromMilliseconds(100);
+
     private readonly ILocalWakeWordService _wakeWordService = LocalWakeWordService.Shared;
     private readonly SemaphoreSlim _wakeWordLifecycleGate = new(1, 1);
     private CancellationTokenSource? _wakeWordModelDownloadCts;
@@ -840,14 +842,22 @@ public partial class MainWindowViewModel
                 AddLog("🎙️ 朗读期间检测到唤醒词，已停止本地朗读并切换到录音。");
             }
             await StopWakeWordListeningForOperationAsync().ConfigureAwait(true);
+            var feedbackPlayed = await PlayWakeWordFeedbackAsync(
+                    "listening",
+                    _cancellationTokenSource?.Token ?? CancellationToken.None)
+                .ConfigureAwait(true);
+            if (feedbackPlayed)
+            {
+                await Task.Delay(
+                        WakeFeedbackTailProtection,
+                        _cancellationTokenSource?.Token ?? CancellationToken.None)
+                    .ConfigureAwait(true);
+            }
+
             await StartVoiceInputAsync(
                 startedByWakeWord: true,
                 allowWhileAdminChatBusy: true,
                 wakeWordTargetSessionId: targetSessionId).ConfigureAwait(true);
-            if (IsVoiceRecording)
-            {
-                SpeakWakeWordFeedback("listening");
-            }
         }
         finally
         {

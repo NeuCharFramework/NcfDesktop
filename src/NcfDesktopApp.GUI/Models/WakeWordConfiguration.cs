@@ -107,7 +107,13 @@ public sealed partial class WakeWordConfiguration : ObservableObject
     public bool IsWakeDetectionValid
     {
         get => _isWakeDetectionValid;
-        set => SetProperty(ref _isWakeDetectionValid, value);
+        set
+        {
+            if (SetProperty(ref _isWakeDetectionValid, value))
+            {
+                OnPropertyChanged(nameof(WakeDetectionValidationColor));
+            }
+        }
     }
 
     private string _wakeDetectionValidationMessage = string.Empty;
@@ -135,8 +141,5 @@ public sealed partial class WakeWordConfiguration : ObservableObject
     partial void OnTargetSessionIdChanged(int value) => OnPropertyChanged(nameof(TargetSessionLabel));
 
     partial void OnTargetSessionTitleChanged(string value) => OnPropertyChanged(nameof(TargetSessionLabel));
-
-    partial void OnIsWakeDetectionValidChanged(bool value) =>
-        OnPropertyChanged(nameof(WakeDetectionValidationColor));
 
 }

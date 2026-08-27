@@ -209,6 +209,24 @@ internal sealed class LocalTextToSpeechService : ILocalTextToSpeechService, IDis
             cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task WarmupAsync(
+        TtsModelFiles files,
+        CancellationToken cancellationToken)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        await _operationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await Task.Run(
+                () => GetOrLoadTts(files),
+                cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _operationGate.Release();
+        }
+    }
+
     public async Task PlayStreamingAsync(
         TtsModelFiles files,
         ChannelReader<string> textChunks,
