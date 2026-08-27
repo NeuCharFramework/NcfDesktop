@@ -6,6 +6,9 @@
 
     创建标识：Senparc - 20260822
 
+    修改标识：Senparc - 20260826
+    修改描述：v0.11.0 新增可自定义唤醒词、目标会话与拼音配置
+
 ----------------------------------------------------------------*/
 
 using System;
@@ -98,13 +101,23 @@ public sealed partial class WakeWordConfiguration : ObservableObject
             : TargetSessionTitle
         : "当前选中的 Chat";
 
-    [JsonIgnore]
-    [ObservableProperty]
     private bool _isWakeDetectionValid = true;
 
     [JsonIgnore]
-    [ObservableProperty]
+    public bool IsWakeDetectionValid
+    {
+        get => _isWakeDetectionValid;
+        set => SetProperty(ref _isWakeDetectionValid, value);
+    }
+
     private string _wakeDetectionValidationMessage = string.Empty;
+
+    [JsonIgnore]
+    public string WakeDetectionValidationMessage
+    {
+        get => _wakeDetectionValidationMessage;
+        set => SetProperty(ref _wakeDetectionValidationMessage, value);
+    }
 
     [JsonIgnore]
     public string WakeDetectionValidationColor => IsWakeDetectionValid ? "#16A34A" : "#DC2626";

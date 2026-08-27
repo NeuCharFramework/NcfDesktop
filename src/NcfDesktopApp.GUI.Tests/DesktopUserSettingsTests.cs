@@ -37,6 +37,22 @@ public sealed class DesktopUserSettingsTests
     }
 
     [TestMethod]
+    public void WakeWordConfiguration_DoesNotPersistTransientValidationState()
+    {
+        var configuration = new WakeWordConfiguration
+        {
+            Phrase = "唤醒测试",
+            IsWakeDetectionValid = false,
+            WakeDetectionValidationMessage = "invalid"
+        };
+
+        var json = JsonSerializer.Serialize(configuration);
+
+        Assert.IsFalse(json.Contains("WakeDetection", StringComparison.Ordinal));
+        Assert.IsFalse(json.Contains("Validation", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
     public void UiLanguage_DefaultsToChinese()
     {
         var settings = new DesktopUserSettings();

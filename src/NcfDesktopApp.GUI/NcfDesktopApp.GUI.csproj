@@ -10,7 +10,7 @@
     -->
     <TargetFramework>net8.0</TargetFramework>
     <RuntimeIdentifiers>win-x64;win-arm64;osx-x64;osx-arm64;linux-x64;linux-arm64</RuntimeIdentifiers>
-    <Version>0.10.1</Version>
+    <Version>0.11.0</Version>
     <!-- Azure 发布时注入 Build.BuildId，使“设置”中的版本与下载文件名/Release 标签一致。 -->
     <InformationalVersion Condition="'$(NcfDesktopBuildNumber)' != ''">$(Version)-build$(NcfDesktopBuildNumber)</InformationalVersion>
     <IncludeSourceRevisionInInformationalVersion Condition="'$(NcfDesktopBuildNumber)' != ''">false</IncludeSourceRevisionInInformationalVersion>
@@ -96,6 +96,12 @@
       2、流式 TTS 首段降低强边界门槛以更快开播；后续段在期望长度附近等待标点至扩展上限，减少句中硬切；完整文本分段与流式路径共用同一强弱边界规则
       3、Agent Portal 对 AgentsManager 快照中的重复 Agent/工作组/连线/协作关系按稳定 Id 去重，避免渲染索引冲突导致 UI 进程退出
       4、macOS 透明桌面机器人窗口在 Hide 后重新 Show 时刷新原生 opaque/background，并统一群组窗与单宠窗的显示路径，减少多透明顶层窗口来回切换后的黑底或失透
+      [2026-08-26] v0.11.0 新增可自定义多唤醒词并增强 Linux 启动与透明浮窗
+      1、支持配置多条自定义唤醒短语（含拼音纠正）、默认词与目标 Chat 会话，命中后切换会话并录音发送
+      2、唤醒命中后先用本地 TTS 两阶段短句确认，再开始转写
+      3、工作台设置提供唤醒词列表、自动拼音、应用配置与中英文提示
+      4、新增 Linux 启动脚本，自动检测 NVIDIA DGX Spark、Wayland 等环境并选择渲染策略
+      5、统一桌面机器人窗口透明背景，减少回退边框导致的视觉缝隙
     </PackageReleaseNotes>
     <PlatformTarget>AnyCPU</PlatformTarget>
     <Nullable>enable</Nullable>
