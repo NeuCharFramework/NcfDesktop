@@ -30,6 +30,7 @@ using SoundFlow.Backends.MiniAudio;
 using SoundFlow.Components;
 using SoundFlow.Enums;
 using SoundFlow.Structs;
+using NcfDesktopApp.GUI.Models;
 
 namespace NcfDesktopApp.GUI.Services;
 
@@ -44,6 +45,7 @@ internal interface ILocalWakeWordService
     bool IsListening(Guid owner);
 
     Task DownloadModelAsync(
+        WakeWordModelOption model,
         Action<WakeWordDownloadProgress>? progress,
         CancellationToken cancellationToken);
 
@@ -126,6 +128,7 @@ internal sealed class LocalWakeWordService : ILocalWakeWordService, IDisposable
     }
 
     public async Task DownloadModelAsync(
+        WakeWordModelOption model,
         Action<WakeWordDownloadProgress>? progress,
         CancellationToken cancellationToken)
     {
@@ -133,13 +136,14 @@ internal sealed class LocalWakeWordService : ILocalWakeWordService, IDisposable
         await _lifecycleGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         var archivePath = Path.Combine(
             WakeWordModelCatalog.ModelsDirectory,
-            $".{WakeWordModelCatalog.ArchiveFileName}.download");
+            $".{model.ArchiveFileName}.download");
         var temporaryDirectory = Path.Combine(
             WakeWordModelCatalog.ModelsDirectory,
-            $".{WakeWordModelCatalog.ModelId}.extract-{Environment.ProcessId}");
+            $".{model.ModelDirectoryName}.extract-{Environment.ProcessId}");
         var backupDirectory = Path.Combine(
             WakeWordModelCatalog.ModelsDirectory,
-            $".{WakeWordModelCatalog.ModelId}.backup-{Environment.ProcessId}");
+            $".{model.ModelDirectoryName}.backup-{Environment.ProcessId}");
+        var modelDirectory = WakeWordModelCatalog.GetModelDirectory(model);
         try
         {
             if (ListeningOwner != null)
@@ -153,35 +157,36 @@ internal sealed class LocalWakeWordService : ILocalWakeWordService, IDisposable
             DeleteDirectoryIfPresent(backupDirectory);
 
             await DownloadArchiveWithFallbackAsync(
+                model,
                 archivePath,
                 progress,
                 cancellationToken).ConfigureAwait(false);
 
             Directory.CreateDirectory(temporaryDirectory);
             await Task.Run(
-                () => ExtractRequiredModelFiles(archivePath, temporaryDirectory, cancellationToken),
-                cancellationToken).ConfigureAwait(false);
-            await File.WriteAllTextAsync(
-                Path.Combine(temporaryDirectory, WakeWordModelCatalog.KeywordsFileName),
-                WakeWordModelCatalog.KeywordsFileContent,
+                () => ExtractRequiredModelFiles(
+                    archivePath,
+                    temporaryDirectory,
+                    model,
+                    cancellationToken),
                 cancellationToken).ConfigureAwait(false);
 
-            var readiness = WakeWordModelCatalog.EvaluateDirectory(temporaryDirectory);
+            var readiness = WakeWordModelCatalog.EvaluateDirectory(temporaryDirectory, model);
             if (!readiness.IsReady)
             {
                 throw new InvalidDataException(readiness.Message);
             }
 
-            UnloadModelIfPathIsUnder(WakeWordModelCatalog.ModelDirectory);
-            var hadExistingModel = Directory.Exists(WakeWordModelCatalog.ModelDirectory);
+            UnloadModelIfPathIsUnder(modelDirectory);
+            var hadExistingModel = Directory.Exists(modelDirectory);
             if (hadExistingModel)
             {
-                Directory.Move(WakeWordModelCatalog.ModelDirectory, backupDirectory);
+                Directory.Move(modelDirectory, backupDirectory);
             }
 
             try
             {
-                Directory.Move(temporaryDirectory, WakeWordModelCatalog.ModelDirectory);
+                Directory.Move(temporaryDirectory, modelDirectory);
                 DeleteDirectoryIfPresent(backupDirectory);
             }
             catch
@@ -203,12 +208,13 @@ internal sealed class LocalWakeWordService : ILocalWakeWordService, IDisposable
     }
 
     private async Task DownloadArchiveWithFallbackAsync(
+        WakeWordModelOption model,
         string archivePath,
         Action<WakeWordDownloadProgress>? progress,
         CancellationToken cancellationToken)
     {
         var failures = new List<string>();
-        foreach (var downloadSource in WakeWordModelCatalog.DownloadSources)
+        foreach (var downloadSource in WakeWordModelCatalog.GetDownloadSources(model))
         {
             cancellationToken.ThrowIfCancellationRequested();
             DeleteFileIfPresent(archivePath);
@@ -258,7 +264,10 @@ internal sealed class LocalWakeWordService : ILocalWakeWordService, IDisposable
                     downloaded,
                     totalBytes,
                     WakeWordDownloadStage.Validating));
-                await ValidateDownloadedArchiveAsync(archivePath, cancellationToken).ConfigureAwait(false);
+                await ValidateDownloadedArchiveAsync(
+                    archivePath,
+                    model,
+                    cancellationToken).ConfigureAwait(false);
                 return;
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -319,11 +328,22 @@ internal sealed class LocalWakeWordService : ILocalWakeWordService, IDisposable
         string archivePath,
         CancellationToken cancellationToken)
     {
+        await ValidateDownloadedArchiveAsync(
+            archivePath,
+            WakeWordModelCatalog.DefaultOption,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    internal static async Task ValidateDownloadedArchiveAsync(
+        string archivePath,
+        WakeWordModelOption model,
+        CancellationToken cancellationToken)
+    {
         var fileLength = new FileInfo(archivePath).Length;
-        if (fileLength != WakeWordModelCatalog.ApproximateDownloadBytes)
+        if (fileLength != model.ApproximateDownloadBytes)
         {
             throw new InvalidDataException(
-                $"模型包大小不正确：实际 {fileLength} 字节，预期 {WakeWordModelCatalog.ApproximateDownloadBytes} 字节。");
+                $"模型包大小不正确：实际 {fileLength} 字节，预期 {model.ApproximateDownloadBytes} 字节。");
         }
 
         await using var stream = new FileStream(
@@ -335,7 +355,7 @@ internal sealed class LocalWakeWordService : ILocalWakeWordService, IDisposable
             FileOptions.Asynchronous | FileOptions.SequentialScan);
         var hash = await SHA256.HashDataAsync(stream, cancellationToken).ConfigureAwait(false);
         var actualHash = Convert.ToHexString(hash).ToLowerInvariant();
-        if (!string.Equals(actualHash, WakeWordModelCatalog.ArchiveSha256, StringComparison.Ordinal))
+        if (!string.Equals(actualHash, model.ArchiveSha256, StringComparison.Ordinal))
         {
             throw new InvalidDataException(
                 $"模型包 SHA-256 校验失败（实际 {actualHash}），已拒绝安装。");
@@ -785,13 +805,30 @@ internal sealed class LocalWakeWordService : ILocalWakeWordService, IDisposable
         string targetDirectory,
         CancellationToken cancellationToken)
     {
+        ExtractRequiredModelFiles(
+            archivePath,
+            targetDirectory,
+            WakeWordModelCatalog.DefaultOption,
+            cancellationToken);
+    }
+
+    internal static void ExtractRequiredModelFiles(
+        string archivePath,
+        string targetDirectory,
+        WakeWordModelOption model,
+        CancellationToken cancellationToken)
+    {
         var requiredNames = new HashSet<string>(FileNameComparer)
         {
-            WakeWordModelCatalog.EncoderFileName,
-            WakeWordModelCatalog.DecoderFileName,
-            WakeWordModelCatalog.JoinerFileName,
-            WakeWordModelCatalog.TokensFileName
+            model.EncoderFileName,
+            model.DecoderFileName,
+            model.JoinerFileName,
+            model.TokensFileName
         };
+        if (!string.IsNullOrWhiteSpace(model.EnglishPhoneFileName))
+        {
+            requiredNames.Add(model.EnglishPhoneFileName);
+        }
         using var compressedStream = new FileStream(
             archivePath,
             FileMode.Open,

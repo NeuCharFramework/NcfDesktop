@@ -119,6 +119,11 @@ public sealed class DesktopUserSettings
     public bool WakeWordEnabled { get; set; }
 
     /// <summary>
+    /// 当前使用的唤醒模型。默认保留原中文模型。
+    /// </summary>
+    public string WakeWordModelId { get; set; } = WakeWordModelCatalog.ChineseModelId;
+
+    /// <summary>
     /// 自定义唤醒词及唤醒后要使用的 Chat 会话。
     /// </summary>
     public List<WakeWordConfiguration> WakeWords { get; set; } = new();

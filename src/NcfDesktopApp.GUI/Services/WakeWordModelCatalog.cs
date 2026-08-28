@@ -36,21 +36,58 @@ internal static class WakeWordModelCatalog
     public const string WakePhraseDisplay = "你好 Cici";
     public const string WakePhrasePronunciation = "你好西西";
     public const string WakePhrasePinyin = "nǐ hǎo xī xī";
-    public const string ModelId = "sherpa-onnx-kws-zipformer-wenetspeech-3.3M-2024-01-01-int8";
+    public const string ChineseModelId = "sherpa-onnx-kws-zipformer-wenetspeech-3.3M-2024-01-01-int8";
+    public const string ChineseEnglishModelId = "sherpa-onnx-kws-zipformer-zh-en-3M-2025-12-20";
+    public const string ModelId = ChineseModelId;
     public const string ArchiveFileName = "sherpa-onnx-kws-zipformer-wenetspeech-3.3M-2024-01-01.tar.bz2";
     public const string DownloadUrl =
         "https://github.com/k2-fsa/sherpa-onnx/releases/download/kws-models/" + ArchiveFileName;
     public const long ApproximateDownloadBytes = 32_654_866;
     public const string ArchiveSha256 = "b2f7c89690dc8ce4c6ed6afeab7cd800c36ad1421fb6b6302b4a4b194cf7f35f";
 
-    // 官方源优先；当 GitHub 在当前网络不可达时，按顺序切换到 HTTPS 加速源。
-    // 下载完成后必须同时通过固定大小、SHA-256、BZip2 文件头和模型文件校验。
-    public static IReadOnlyList<WakeWordDownloadSource> DownloadSources { get; } =
+    private const string ChineseEnglishArchiveFileName =
+        "sherpa-onnx-kws-zipformer-zh-en-3M-2025-12-20.tar.bz2";
+    private const string ChineseEnglishDownloadUrl =
+        "https://github.com/k2-fsa/sherpa-onnx/releases/download/kws-models/" +
+        ChineseEnglishArchiveFileName;
+    private const long ChineseEnglishApproximateDownloadBytes = 32_885_699;
+    private const string ChineseEnglishArchiveSha256 =
+        "68447f4fbc67e70eee3a93961f36e81e98f47aef73ce7e7ca00885c6cd3616a6";
+
+    public static IReadOnlyList<WakeWordModelOption> Options { get; } =
     [
-        new("GitHub 官方源", DownloadUrl),
-        new("GitHub 加速源 1", "https://ghfast.top/" + DownloadUrl),
-        new("GitHub 加速源 2", "https://gh-proxy.com/" + DownloadUrl)
+        new(
+            ChineseModelId,
+            WakeWordModelLanguage.Chinese,
+            ChineseModelId,
+            ArchiveFileName,
+            DownloadUrl,
+            ApproximateDownloadBytes,
+            ArchiveSha256,
+            "encoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx",
+            "decoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx",
+            "joiner-epoch-12-avg-2-chunk-16-left-64.int8.onnx",
+            "tokens.txt",
+            null),
+        new(
+            ChineseEnglishModelId,
+            WakeWordModelLanguage.ChineseEnglish,
+            ChineseEnglishModelId,
+            ChineseEnglishArchiveFileName,
+            ChineseEnglishDownloadUrl,
+            ChineseEnglishApproximateDownloadBytes,
+            ChineseEnglishArchiveSha256,
+            "encoder-epoch-13-avg-2-chunk-16-left-64.int8.onnx",
+            "decoder-epoch-13-avg-2-chunk-16-left-64.onnx",
+            "joiner-epoch-13-avg-2-chunk-16-left-64.int8.onnx",
+            "tokens.txt",
+            "en.phone")
     ];
+
+    public static WakeWordModelOption DefaultOption => Options[0];
+
+    public static IReadOnlyList<WakeWordDownloadSource> DownloadSources =>
+        GetDownloadSources(DefaultOption);
 
     public const string EncoderFileName = "encoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx";
     public const string DecoderFileName = "decoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx";
@@ -63,20 +100,41 @@ internal static class WakeWordModelCatalog
 
     public static string ModelsDirectory => Path.Combine(VoiceModelCatalog.ModelsDirectory, "WakeWord");
 
-    public static string ModelDirectory => Path.Combine(ModelsDirectory, ModelId);
+    public static string ModelDirectory => GetModelDirectory(DefaultOption);
 
-    public static WakeWordModelReadiness Evaluate() => EvaluateDirectory(ModelDirectory);
+    public static WakeWordModelOption FindById(string? id) =>
+        Options.FirstOrDefault(option =>
+            string.Equals(option.Id, id?.Trim(), StringComparison.OrdinalIgnoreCase)) ??
+        DefaultOption;
+
+    public static string GetModelDirectory(WakeWordModelOption option) =>
+        Path.Combine(ModelsDirectory, option.ModelDirectoryName);
+
+    public static WakeWordModelReadiness Evaluate() => Evaluate(DefaultOption);
+
+    public static WakeWordModelReadiness Evaluate(WakeWordModelOption? option)
+    {
+        var selected = option ?? DefaultOption;
+        return EvaluateDirectory(GetModelDirectory(selected), selected);
+    }
 
     public static WakeWordModelReadiness EvaluateDirectory(string directory)
     {
-        var files = ResolveFiles(directory);
+        return EvaluateDirectory(directory, DefaultOption);
+    }
+
+    public static WakeWordModelReadiness EvaluateDirectory(
+        string directory,
+        WakeWordModelOption option)
+    {
+        var files = ResolveFiles(directory, option);
         if (files == null)
         {
             return new WakeWordModelReadiness(
                 false,
                 directory,
                 null,
-                $"固定唤醒词“{WakePhraseDisplay}”的轻量模型尚未下载。");
+                $"唤醒模型“{option.DisplayName}”尚未下载。");
         }
 
         try
@@ -111,33 +169,55 @@ internal static class WakeWordModelCatalog
 
     public static WakeWordModelFiles? ResolveFiles(string directory)
     {
+        return ResolveFiles(directory, DefaultOption);
+    }
+
+    public static WakeWordModelFiles? ResolveFiles(
+        string directory,
+        WakeWordModelOption option)
+    {
         if (!Directory.Exists(directory))
         {
             return null;
         }
 
-        var encoder = Path.Combine(directory, EncoderFileName);
-        var decoder = Path.Combine(directory, DecoderFileName);
-        var joiner = Path.Combine(directory, JoinerFileName);
-        var tokens = Path.Combine(directory, TokensFileName);
-        var keywords = Path.Combine(directory, KeywordsFileName);
+        var encoder = Path.Combine(directory, option.EncoderFileName);
+        var decoder = Path.Combine(directory, option.DecoderFileName);
+        var joiner = Path.Combine(directory, option.JoinerFileName);
+        var tokens = Path.Combine(directory, option.TokensFileName);
+        var englishPhone = string.IsNullOrWhiteSpace(option.EnglishPhoneFileName)
+            ? null
+            : Path.Combine(directory, option.EnglishPhoneFileName);
         return File.Exists(encoder) &&
                File.Exists(decoder) &&
                File.Exists(joiner) &&
                File.Exists(tokens) &&
-               File.Exists(keywords)
+               (englishPhone == null || File.Exists(englishPhone))
             ? new WakeWordModelFiles(
                 directory,
                 encoder,
                 decoder,
                 joiner,
                 tokens,
-                keywords,
+                string.Empty,
                 new Dictionary<string, WakeWordKeywordDefinition>(StringComparer.OrdinalIgnoreCase)
                 {
                     ["legacy"] = new("legacy", WakePhraseDisplay)
-                })
+                },
+                option.Language,
+                englishPhone)
             : null;
+    }
+
+    public static IReadOnlyList<WakeWordDownloadSource> GetDownloadSources(
+        WakeWordModelOption option)
+    {
+        return
+        [
+            new("GitHub 官方源", option.DownloadUrl),
+            new("GitHub 加速源 1", $"https://ghfast.top/{option.DownloadUrl}"),
+            new("GitHub 加速源 2", $"https://gh-proxy.com/{option.DownloadUrl}")
+        ];
     }
 
     public static WakeWordConfiguration CreateDefaultConfiguration()
@@ -155,9 +235,11 @@ internal static class WakeWordModelCatalog
     public static WakeWordConfiguredModel BuildConfiguredFiles(
         string directory,
         IReadOnlyList<WakeWordConfiguration> configurations,
-        string? activeKeywordsDirectory = null)
+        string? activeKeywordsDirectory = null,
+        WakeWordModelOption? option = null)
     {
-        var baseFiles = ResolveFiles(directory);
+        var selectedOption = option ?? DefaultOption;
+        var baseFiles = ResolveFiles(directory, selectedOption);
         if (baseFiles == null)
         {
             return new WakeWordConfiguredModel(
@@ -173,6 +255,9 @@ internal static class WakeWordModelCatalog
             StringComparer.OrdinalIgnoreCase);
         var validations = new List<WakeWordConfigurationValidation>();
         var seenPhrases = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var englishLexicon = baseFiles.EnglishPhoneLexicon == null
+            ? null
+            : LoadEnglishPhoneLexicon(baseFiles.EnglishPhoneLexicon);
         foreach (var configuration in configurations.Where(configuration => configuration != null))
         {
             var phrase = configuration.Phrase?.Trim() ?? string.Empty;
@@ -211,6 +296,8 @@ internal static class WakeWordModelCatalog
                     configuration,
                     alias,
                     vocabulary,
+                    selectedOption,
+                    englishLexicon,
                     out var line,
                     out var effectivePinyin,
                     out var error))
@@ -278,6 +365,8 @@ internal static class WakeWordModelCatalog
         WakeWordConfiguration configuration,
         string alias,
         IReadOnlySet<string> vocabulary,
+        WakeWordModelOption option,
+        IReadOnlyDictionary<string, string[]>? englishLexicon,
         out string line,
         out string effectivePinyin,
         out string error)
@@ -287,6 +376,28 @@ internal static class WakeWordModelCatalog
         error = string.Empty;
         var phrase = configuration.Phrase.Trim();
         var pinyin = configuration.Pinyin?.Trim();
+        if (option.SupportsEnglish && ContainsLatinLetters(phrase))
+        {
+            return TryBuildEnglishOrMixedKeywordLine(
+                configuration,
+                alias,
+                phrase,
+                pinyin,
+                vocabulary,
+                englishLexicon,
+                out line,
+                out effectivePinyin,
+                out error);
+        }
+
+        if (!option.SupportsEnglish &&
+            ContainsLatinLetters(phrase) &&
+            string.IsNullOrWhiteSpace(pinyin))
+        {
+            error = "当前中文唤醒模型不支持英文，请在上方切换到“中文 + English”模型。";
+            return false;
+        }
+
         var canDerivePinyin = TryDeriveChinesePinyin(phrase, out var derivedPinyin, out var derivationError);
         if (string.IsNullOrWhiteSpace(pinyin))
         {
@@ -332,6 +443,151 @@ internal static class WakeWordModelCatalog
         line = $"{string.Join(' ', modelTokens)} :1.5 #0.35 @{alias}";
         return true;
     }
+
+    private static bool TryBuildEnglishOrMixedKeywordLine(
+        WakeWordConfiguration configuration,
+        string alias,
+        string phrase,
+        string? manualPhones,
+        IReadOnlySet<string> vocabulary,
+        IReadOnlyDictionary<string, string[]>? englishLexicon,
+        out string line,
+        out string effectivePinyin,
+        out string error)
+    {
+        line = string.Empty;
+        effectivePinyin = string.Empty;
+        error = string.Empty;
+        if (englishLexicon == null)
+        {
+            error = "当前模型没有英文发音词典，请重新下载中文 + English 模型。";
+            return false;
+        }
+
+        var tokens = new List<string>();
+        var effectiveParts = new List<string>();
+        foreach (var part in phrase.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (ContainsHanCharacters(part))
+            {
+                if (!TryDeriveChinesePinyin(
+                        part,
+                        out var chinesePinyin,
+                        out var chineseError))
+                {
+                    error = chineseError;
+                    return false;
+                }
+
+                foreach (var syllable in chinesePinyin.Split(
+                             (char[]?)null,
+                             StringSplitOptions.RemoveEmptyEntries))
+                {
+                    var normalizedSyllable = NormalizeManualPinyinSyllable(syllable);
+                    if (!TryTokenizeSyllable(normalizedSyllable, vocabulary, tokens))
+                    {
+                        error = $"中文音节“{normalizedSyllable}”不在双语模型词表中。";
+                        return false;
+                    }
+
+                    effectiveParts.Add(normalizedSyllable);
+                }
+
+                continue;
+            }
+
+            var word = NormalizeEnglishWord(part);
+            if (word.Length == 0)
+            {
+                continue;
+            }
+
+            if (!englishLexicon.TryGetValue(word, out var phones))
+            {
+                if (string.IsNullOrWhiteSpace(manualPhones))
+                {
+                    error = $"英文单词“{part}”不在本地发音词典中，请填写音素或换用常见英文短语。";
+                    return false;
+                }
+
+                phones = manualPhones
+                    .Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)
+                    .ToArray();
+            }
+
+            foreach (var phone in phones)
+            {
+                if (!vocabulary.Contains(phone))
+                {
+                    error = $"英文音素“{phone}”不在双语模型词表中。";
+                    return false;
+                }
+
+                tokens.Add(phone);
+            }
+
+            effectiveParts.Add(string.Join(' ', phones));
+        }
+
+        if (tokens.Count == 0)
+        {
+            error = "没有生成有效的英文或中文唤醒音素。";
+            return false;
+        }
+
+        effectivePinyin = string.Join(" | ", effectiveParts);
+        line = $"{string.Join(' ', tokens)} @{alias}";
+        return true;
+    }
+
+    private static Dictionary<string, string[]> LoadEnglishPhoneLexicon(string path)
+    {
+        var lexicon = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase);
+        foreach (var rawLine in File.ReadLines(path))
+        {
+            var line = rawLine.Trim();
+            if (line.Length == 0 || line.StartsWith('#'))
+            {
+                continue;
+            }
+
+            var parts = line.Split(
+                (char[]?)null,
+                StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length < 2)
+            {
+                continue;
+            }
+
+            var word = parts[0].ToUpperInvariant();
+            var pronunciationIndex = word.IndexOf('(');
+            if (pronunciationIndex > 0)
+            {
+                word = word[..pronunciationIndex];
+            }
+
+            if (!lexicon.ContainsKey(word))
+            {
+                lexicon[word] = parts[1..];
+            }
+        }
+
+        return lexicon;
+    }
+
+    private static string NormalizeEnglishWord(string value)
+    {
+        var chars = value
+            .Where(character => char.IsLetter(character) || character == '\'')
+            .ToArray();
+        return new string(chars).Trim('\'').ToUpperInvariant();
+    }
+
+    private static bool ContainsLatinLetters(string value) =>
+        value.Any(character => character is >= 'A' and <= 'Z' or >= 'a' and <= 'z');
+
+    private static bool ContainsHanCharacters(string value) =>
+        value.Any(PinyinUtil.IsHanzi);
 
     private static bool TryDeriveChinesePinyin(
         string phrase,
@@ -508,7 +764,9 @@ internal sealed record WakeWordModelFiles(
     string Joiner,
     string Tokens,
     string Keywords,
-    IReadOnlyDictionary<string, WakeWordKeywordDefinition>? KeywordDefinitions = null);
+    IReadOnlyDictionary<string, WakeWordKeywordDefinition>? KeywordDefinitions = null,
+    WakeWordModelLanguage Language = WakeWordModelLanguage.Chinese,
+    string? EnglishPhoneLexicon = null);
 
 internal sealed record WakeWordKeywordDefinition(string Alias, string Phrase);
 

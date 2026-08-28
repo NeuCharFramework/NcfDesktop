@@ -898,6 +898,7 @@ public partial class MainWindowViewModel : ViewModelBase
             VoiceLanguage = VoiceLanguage,
             SttAutoSend = SttAutoSend,
             WakeWordEnabled = WakeWordEnabled,
+            WakeWordModelId = SelectedWakeWordModel?.Id ?? WakeWordModelCatalog.ChineseModelId,
             WakeWords = WakeWordConfigurations.ToList(),
             TtsModelId = SelectedTtsModel?.Id ?? string.Empty,
             TtsCustomModelPath = TtsCustomModelPath,
@@ -1981,6 +1982,7 @@ public partial class MainWindowViewModel : ViewModelBase
                 SelectedVoiceModel = VoiceModelCatalog.FindById(desktopSettings.VoiceModelId);
                 SttAutoSend = desktopSettings.SttAutoSend;
                 WakeWordEnabled = desktopSettings.WakeWordEnabled;
+                SelectedWakeWordModel = WakeWordModelCatalog.FindById(desktopSettings.WakeWordModelId);
                 LoadWakeWordConfigurations(desktopSettings.WakeWords);
                 TtsCustomModelPath = desktopSettings.TtsCustomModelPath ?? string.Empty;
                 SelectedTtsModel = TtsModelCatalog.FindById(desktopSettings.TtsModelId);

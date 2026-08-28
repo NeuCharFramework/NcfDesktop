@@ -54,6 +54,9 @@ public partial class MainWindowViewModel
     private bool _wakeWordEnabled;
 
     [ObservableProperty]
+    private WakeWordModelOption _selectedWakeWordModel = WakeWordModelCatalog.DefaultOption;
+
+    [ObservableProperty]
     private bool _isWakeWordModelReady;
 
     [ObservableProperty]
@@ -81,6 +84,8 @@ public partial class MainWindowViewModel
     public ObservableCollection<WakeWordConfiguration> WakeWordConfigurations { get; } = new();
 
     public ObservableCollection<WakeWordChatSessionOption> WakeWordChatSessionOptions { get; } = new();
+
+    public IReadOnlyList<WakeWordModelOption> WakeWordModelOptions => WakeWordModelCatalog.Options;
 
     public string WakePhraseText
     {
@@ -140,6 +145,17 @@ public partial class MainWindowViewModel
         ScheduleWakeWordListeningRefresh();
     }
 
+    partial void OnSelectedWakeWordModelChanged(WakeWordModelOption value)
+    {
+        _ = StopWakeWordListeningForOperationAsync();
+        RefreshWakeWordModelReadiness();
+        ScheduleWakeWordListeningRefresh();
+        if (!_suppressDesktopSettingsSave)
+        {
+            SaveDesktopSettings();
+        }
+    }
+
     partial void OnIsWakeWordModelReadyChanged(bool value)
     {
         OnPropertyChanged(nameof(WakeWordStatusColor));
@@ -155,6 +171,7 @@ public partial class MainWindowViewModel
     [RelayCommand(CanExecute = nameof(CanDownloadWakeWordModel))]
     private async Task DownloadWakeWordModel()
     {
+        var model = SelectedWakeWordModel;
         await StopWakeWordListeningForOperationAsync().ConfigureAwait(true);
         _wakeWordModelDownloadCts?.Cancel();
         _wakeWordModelDownloadCts?.Dispose();
@@ -162,13 +179,15 @@ public partial class MainWindowViewModel
         IsWakeWordModelBusy = true;
         WakeWordDownloadProgressValue = 0;
         IsWakeWordDownloadProgressIndeterminate = true;
-        WakeWordDownloadProgressText = "正在下载约 31 MiB 的 INT8 唤醒模型…";
+        WakeWordDownloadProgressText =
+            $"正在下载 {model.DisplayName}（约 {VoiceModelCatalog.FormatBytes(model.ApproximateDownloadBytes)}）…";
         WakeWordStatusText = "下载完成前不会启动麦克风监听。";
         long lastReportedBytes = 0;
         string? lastReportedSource = null;
         try
         {
             await _wakeWordService.DownloadModelAsync(
+                model,
                 download =>
                 {
                     var sourceChanged = !string.Equals(
@@ -177,7 +196,7 @@ public partial class MainWindowViewModel
                         StringComparison.Ordinal);
                     var expectedBytes = download.TotalBytes is > 0
                         ? download.TotalBytes.Value
-                        : WakeWordModelCatalog.ApproximateDownloadBytes;
+                        : model.ApproximateDownloadBytes;
                     if (download.Stage == WakeWordDownloadStage.Downloading &&
                         !sourceChanged &&
                         download.DownloadedBytes - lastReportedBytes < 512 * 1024 &&
@@ -224,7 +243,7 @@ public partial class MainWindowViewModel
             WakeWordDownloadProgressValue = 100;
             IsWakeWordDownloadProgressIndeterminate = false;
             WakeWordDownloadProgressText = "模型下载和校验完成。";
-            AddLog($"✅ 固定唤醒词模型已就绪: {WakeWordModelCatalog.ModelDirectory}");
+            AddLog($"✅ 唤醒模型已就绪: {WakeWordModelCatalog.GetModelDirectory(model)}");
         }
         catch (OperationCanceledException)
         {
@@ -352,12 +371,13 @@ public partial class MainWindowViewModel
         NormalizeWakeWordConfigurations();
         await StopWakeWordListeningForOperationAsync().ConfigureAwait(true);
         RefreshWakeWordModelReadiness();
-        var readiness = WakeWordModelCatalog.Evaluate();
+        var readiness = WakeWordModelCatalog.Evaluate(SelectedWakeWordModel);
         if (readiness.IsReady)
         {
             var configuredModel = WakeWordModelCatalog.BuildConfiguredFiles(
                 readiness.ModelDirectory,
-                WakeWordConfigurations);
+                WakeWordConfigurations,
+                option: SelectedWakeWordModel);
             ApplyWakeWordValidations(configuredModel);
             WakeWordConfigurationStatusText = configuredModel.Message;
         }
@@ -593,7 +613,7 @@ public partial class MainWindowViewModel
 
     internal void RefreshWakeWordModelReadiness()
     {
-        var readiness = WakeWordModelCatalog.Evaluate();
+        var readiness = WakeWordModelCatalog.Evaluate(SelectedWakeWordModel);
         IsWakeWordModelReady = readiness.IsReady;
         if (WakeWordEnabled || !readiness.IsReady)
         {
@@ -703,7 +723,7 @@ public partial class MainWindowViewModel
                 return;
             }
 
-            var readiness = WakeWordModelCatalog.Evaluate();
+            var readiness = WakeWordModelCatalog.Evaluate(SelectedWakeWordModel);
             if (!readiness.IsReady || readiness.Files == null)
             {
                 IsWakeWordModelReady = false;
@@ -713,7 +733,8 @@ public partial class MainWindowViewModel
 
             var configuredModel = WakeWordModelCatalog.BuildConfiguredFiles(
                 readiness.ModelDirectory,
-                WakeWordConfigurations);
+                WakeWordConfigurations,
+                option: SelectedWakeWordModel);
             ApplyWakeWordValidations(configuredModel);
             WakeWordConfigurationStatusText = configuredModel.Message;
             if (!configuredModel.IsReady || configuredModel.Files == null)
@@ -757,7 +778,7 @@ public partial class MainWindowViewModel
 
         if (!IsWakeWordModelReady)
         {
-            return WakeWordModelCatalog.Evaluate().Message;
+            return WakeWordModelCatalog.Evaluate(SelectedWakeWordModel).Message;
         }
 
         if (!IsVoiceModelReady)

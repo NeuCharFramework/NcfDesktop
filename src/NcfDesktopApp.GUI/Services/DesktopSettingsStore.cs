@@ -142,6 +142,7 @@ public static class DesktopSettingsStore
                 VoiceLanguage = NormalizeVoiceLanguage(settings.VoiceLanguage),
                 SttAutoSend = settings.SttAutoSend,
                 WakeWordEnabled = settings.WakeWordEnabled,
+                WakeWordModelId = WakeWordModelCatalog.FindById(settings.WakeWordModelId).Id,
                 WakeWords = NormalizeWakeWords(settings.WakeWords),
                 TtsModelId = settings.TtsModelId?.Trim() ?? string.Empty,
                 TtsCustomModelPath = settings.TtsCustomModelPath?.Trim() ?? string.Empty,

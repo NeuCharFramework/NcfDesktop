@@ -138,6 +138,35 @@ public sealed class WakeWordModelCatalogTests
     }
 
     [TestMethod]
+    public void BuildConfiguredFiles_WhenChineseEnglishModelUsesHello_WritesEnglishPhoneTokens()
+    {
+        var option = WakeWordModelCatalog.Options.Single(
+            model => model.Language == WakeWordModelLanguage.ChineseEnglish);
+        var directory = CreateCompleteModelDirectory(option);
+        File.WriteAllText(
+            Path.Combine(directory, option.EnglishPhoneFileName!),
+            "HELLO HH AH0 L OW1\n");
+        var outputDirectory = Path.Combine(directory, "active");
+        var configuration = new WakeWordConfiguration
+        {
+            Phrase = "Hello",
+            IsEnabled = true
+        };
+
+        var result = WakeWordModelCatalog.BuildConfiguredFiles(
+            directory,
+            new[] { configuration },
+            outputDirectory,
+            option);
+
+        Assert.IsTrue(result.IsReady, result.Message);
+        Assert.IsNotNull(result.Files);
+        StringAssert.Contains(
+            File.ReadAllText(result.Files.Keywords),
+            "HH AH0 L OW1");
+    }
+
+    [TestMethod]
     public void ExtractRequiredModelFiles_WhenArchiveIsTarBZip2_ExtractsOnlyRuntimeFiles()
     {
         var directory = CreateTemporaryDirectory();
@@ -376,6 +405,18 @@ public sealed class WakeWordModelCatalogTests
         File.WriteAllText(
             Path.Combine(directory, WakeWordModelCatalog.KeywordsFileName),
             keywordContent);
+        return directory;
+    }
+
+    private string CreateCompleteModelDirectory(WakeWordModelOption option)
+    {
+        var directory = CreateTemporaryDirectory();
+        CreateSparseFile(Path.Combine(directory, option.EncoderFileName), 4 * 1024L * 1024L);
+        CreateSparseFile(Path.Combine(directory, option.DecoderFileName), 128 * 1024L);
+        CreateSparseFile(Path.Combine(directory, option.JoinerFileName), 48 * 1024L);
+        File.WriteAllText(
+            Path.Combine(directory, option.TokensFileName),
+            "HH 1\nAH0 2\nL 3\nOW1 4\n");
         return directory;
     }
 

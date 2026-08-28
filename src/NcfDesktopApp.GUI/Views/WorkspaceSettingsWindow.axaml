@@ -198,6 +198,20 @@
                                            FontSize="10"
                                            TextWrapping="Wrap"
                                            Foreground="{DynamicResource SecondaryTextBrush}"/>
+                                <Grid ColumnDefinitions="95,*">
+                                    <TextBlock Grid.Column="0"
+                                               Text="{loc:Loc Settings.WakeModel}"
+                                               Classes="field-label"
+                                               VerticalAlignment="Center"/>
+                                    <ComboBox Grid.Column="1"
+                                              ItemsSource="{Binding WakeWordModelOptions}"
+                                              SelectedItem="{Binding SelectedWakeWordModel, Mode=TwoWay}"
+                                              DisplayMemberBinding="{Binding DisplayName}"/>
+                                </Grid>
+                                <TextBlock Text="{Binding SelectedWakeWordModel.Description}"
+                                           FontSize="9.5"
+                                           TextWrapping="Wrap"
+                                           Foreground="{DynamicResource SecondaryTextBrush}"/>
                                 <ItemsControl ItemsSource="{Binding WakeWordConfigurations}">
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate x:DataType="models:WakeWordConfiguration">
