@@ -246,13 +246,13 @@
                                                     </Grid>
                                                     <Grid ColumnDefinitions="95,*,Auto,Auto">
                                                         <TextBlock Grid.Column="0"
-                                                                   Text="{loc:Loc Settings.WakePinyin}"
+                                                                   Text="{Binding #SettingsRoot.DataContext.WakePinyinLabel}"
                                                                    Classes="field-label"
                                                                    VerticalAlignment="Center"/>
                                                         <TextBox Grid.Column="1"
                                                                  Tag="WakePinyinInput"
                                                                  Text="{Binding Pinyin, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                                                 Watermark="{loc:Loc Settings.WakePinyinWatermark}"
+                                                                 Watermark="{Binding #SettingsRoot.DataContext.WakePinyinWatermark}"
                                                                  FontFamily="Consolas,Menlo,Monaco,Courier New"/>
                                                         <Button Grid.Column="2"
                                                                 Content="↻"

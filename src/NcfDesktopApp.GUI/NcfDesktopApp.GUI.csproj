@@ -10,7 +10,7 @@
     -->
     <TargetFramework>net8.0</TargetFramework>
     <RuntimeIdentifiers>win-x64;win-arm64;osx-x64;osx-arm64;linux-x64;linux-arm64</RuntimeIdentifiers>
-    <Version>0.11.0</Version>
+    <Version>0.12.0</Version>
     <!-- Azure 发布时注入 Build.BuildId，使“设置”中的版本与下载文件名/Release 标签一致。 -->
     <InformationalVersion Condition="'$(NcfDesktopBuildNumber)' != ''">$(Version)-build$(NcfDesktopBuildNumber)</InformationalVersion>
     <IncludeSourceRevisionInInformationalVersion Condition="'$(NcfDesktopBuildNumber)' != ''">false</IncludeSourceRevisionInInformationalVersion>
@@ -102,6 +102,10 @@
       3、工作台设置提供唤醒词列表、自动拼音、应用配置与中英文提示
       4、新增 Linux 启动脚本，自动检测 NVIDIA DGX Spark、Wayland 等环境并选择渲染策略
       5、统一桌面机器人窗口透明背景，减少回退边框导致的视觉缝隙
+      [2026-08-28] v0.12.0 新增中文与中英双语唤醒词模型选择
+      1、工作台设置可选择中文或中英混合本地唤醒词模型，并显示体积与能力说明
+      2、持久化所选模型，下载校验与流式检测按所选模型目录进行
+      3、中英文界面文案同步更新，便于首次下载与语言能力提示
     </PackageReleaseNotes>
     <PlatformTarget>AnyCPU</PlatformTarget>
     <Nullable>enable</Nullable>

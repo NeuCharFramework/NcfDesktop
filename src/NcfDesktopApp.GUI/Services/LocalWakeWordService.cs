@@ -12,6 +12,9 @@
     修改标识：Senparc - 20260826
     修改描述：v0.11.0 支持多自定义唤醒短语流式检测
 
+    修改标识：Senparc - 20260828
+    修改描述：v0.12.0 按所选中文或中英模型进行下载校验与流式检测
+
 ----------------------------------------------------------------*/
 
 using System;
@@ -191,9 +194,9 @@ internal sealed class LocalWakeWordService : ILocalWakeWordService, IDisposable
             }
             catch
             {
-                if (!Directory.Exists(WakeWordModelCatalog.ModelDirectory) && Directory.Exists(backupDirectory))
+                if (!Directory.Exists(modelDirectory) && Directory.Exists(backupDirectory))
                 {
-                    Directory.Move(backupDirectory, WakeWordModelCatalog.ModelDirectory);
+                    Directory.Move(backupDirectory, modelDirectory);
                 }
 
                 throw;

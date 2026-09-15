@@ -19,6 +19,9 @@
     修改标识：Senparc - 20260826
     修改描述：v0.11.0 增加自定义唤醒词用户设置
 
+    修改标识：Senparc - 20260828
+    修改描述：v0.12.0 增加唤醒词模型标识用户设置
+
 ----------------------------------------------------------------*/
 using System.Collections.Generic;
 using NcfDesktopApp.GUI.Models;

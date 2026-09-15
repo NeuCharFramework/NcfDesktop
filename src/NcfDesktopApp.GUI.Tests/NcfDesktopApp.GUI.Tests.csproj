@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
-    <Version>0.3.5</Version>
+    <Version>0.3.6</Version>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -37,6 +37,8 @@
       1、覆盖自定义唤醒短语目录、拼音转换与模型策略
       2、验证桌面设置对唤醒词列表的规范化与持久化
       3、验证 AdminChat 客户端与目标会话相关行为
+      [2026-08-28] v0.3.6 扩展中英双语唤醒词模型目录测试
+      1、覆盖中文与中英混合模型选项、校验与查找行为
     </PackageReleaseNotes>
   </PropertyGroup>
 

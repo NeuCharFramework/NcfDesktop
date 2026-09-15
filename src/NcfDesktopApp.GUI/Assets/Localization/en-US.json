@@ -145,6 +145,8 @@
   "Settings.WakePhraseWatermark": "Example: Little assistant",
   "Settings.WakePinyin": "Pinyin (optional)",
   "Settings.WakePinyinWatermark": "Example: xiǎo zhù shǒu",
+  "Settings.WakePinyinOrEnglishPhones": "Pinyin / English phones (optional)",
+  "Settings.WakePinyinOrEnglishPhonesWatermark": "Leave common words such as Hello blank; use phones for unknown words",
   "Settings.WakeAutoPinyinTip": "Generate tone-marked pinyin from the Chinese phrase",
   "Settings.WakeToneSymbolsTip": "Insert a pinyin tone symbol at the cursor",
   "Settings.WakeTargetChat": "Open after wake",

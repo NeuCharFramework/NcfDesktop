@@ -18,6 +18,9 @@
     修改标识：Senparc - 20260826
     修改描述：v0.11.0 管理多条自定义唤醒词及设置页应用
 
+    修改标识：Senparc - 20260828
+    修改描述：v0.12.0 支持设置页选择并切换中文/中英唤醒词模型
+
 ----------------------------------------------------------------*/
 
 using System;
@@ -106,6 +109,14 @@ public partial class MainWindowViewModel
 
     public string WakeWordEnableLabel => LocalizationService.T("Settings.WakeWordEnable", WakePhraseText);
 
+    public string WakePinyinLabel => SelectedWakeWordModel.SupportsEnglish
+        ? LocalizationService.T("Settings.WakePinyinOrEnglishPhones")
+        : LocalizationService.T("Settings.WakePinyin");
+
+    public string WakePinyinWatermark => SelectedWakeWordModel.SupportsEnglish
+        ? LocalizationService.T("Settings.WakePinyinOrEnglishPhonesWatermark")
+        : LocalizationService.T("Settings.WakePinyinWatermark");
+
     public string WakeWordStatusColor => IsWakeWordListening
         ? "#16A34A"
         : WakeWordEnabled && !IsWakeWordModelReady
@@ -150,6 +161,8 @@ public partial class MainWindowViewModel
         _ = StopWakeWordListeningForOperationAsync();
         RefreshWakeWordModelReadiness();
         ScheduleWakeWordListeningRefresh();
+        OnPropertyChanged(nameof(WakePinyinLabel));
+        OnPropertyChanged(nameof(WakePinyinWatermark));
         if (!_suppressDesktopSettingsSave)
         {
             SaveDesktopSettings();
@@ -554,6 +567,8 @@ public partial class MainWindowViewModel
         OnPropertyChanged(nameof(WakePhraseText));
         OnPropertyChanged(nameof(WakePhraseLabel));
         OnPropertyChanged(nameof(WakeWordEnableLabel));
+        OnPropertyChanged(nameof(WakePinyinLabel));
+        OnPropertyChanged(nameof(WakePinyinWatermark));
     }
 
     private WakeWordConfiguration? FindWakeWordConfiguration(string keywordId)

@@ -145,6 +145,8 @@
   "Settings.WakePhraseWatermark": "例如：小助手",
   "Settings.WakePinyin": "拼音（可选）",
   "Settings.WakePinyinWatermark": "例如：xiǎo zhù shǒu",
+  "Settings.WakePinyinOrEnglishPhones": "拼音 / English 音素（可选）",
+  "Settings.WakePinyinOrEnglishPhonesWatermark": "Hello 等常见词可留空；未知词填写 HH AH0 L OW1",
   "Settings.WakeAutoPinyinTip": "按中文短语自动生成带声调拼音",
   "Settings.WakeToneSymbolsTip": "在当前位置插入拼音声调符号",
   "Settings.WakeTargetChat": "唤醒后进入",

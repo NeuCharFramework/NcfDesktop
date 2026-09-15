@@ -15,6 +15,9 @@
     修改标识：Senparc - 20260826
     修改描述：v0.11.0 支持自定义唤醒短语拼音转换与模型目录
 
+    修改标识：Senparc - 20260828
+    修改描述：v0.12.0 增加中英双语唤醒词模型目录、校验与查找
+
 ----------------------------------------------------------------*/
 
 using System;
@@ -245,7 +248,7 @@ internal static class WakeWordModelCatalog
             return new WakeWordConfiguredModel(
                 false,
                 null,
-                EvaluateDirectory(directory).Message,
+                EvaluateDirectory(directory, selectedOption).Message,
                 Array.Empty<WakeWordConfigurationValidation>());
         }
 
